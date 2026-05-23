@@ -9,11 +9,19 @@ const db = createClient({ url: `file:${path.resolve(dbPath)}` });
 async function migrate() {
   const sql = fs.readFileSync(path.join(__dirname, '001_initial.sql'), 'utf8');
 
-  // Splits op ; en voer per statement uit
+  // Split on ; then strip comment-only lines before deciding if a statement is empty.
+  // This prevents "-- comment\nCREATE TABLE..." from being filtered out because it
+  // starts with "--" after trim().
   const statements = sql
     .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith('--'));
+    .map((chunk) =>
+      chunk
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n')
+        .trim()
+    )
+    .filter((s) => s.length > 0);
 
   for (const stmt of statements) {
     await db.execute(stmt);

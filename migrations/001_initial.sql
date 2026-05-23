@@ -19,13 +19,15 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Membership tiers
 CREATE TABLE IF NOT EXISTS memberships (
-  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-  name                  TEXT    NOT NULL,          -- Basic | Premium | VIP
-  price_monthly         REAL    NOT NULL,
-  max_bookings_per_month INTEGER NOT NULL DEFAULT 8,
-  description           TEXT,
-  features              TEXT,                      -- JSON array
-  created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  name                   TEXT    NOT NULL,          -- Jaar abonnement | Half jaar abonnement | Maand abonnement
+  category               TEXT    NOT NULL DEFAULT 'Volwassenen', -- Jeugd | Volwassenen
+  duration_months        INTEGER NOT NULL DEFAULT 1,             -- 12 | 6 | 1
+  price_monthly          REAL    NOT NULL,
+  max_bookings_per_month INTEGER NOT NULL DEFAULT -1,            -- -1 = onbeperkt
+  description            TEXT,
+  features               TEXT,                      -- JSON array
+  created_at             TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Active membership per user
@@ -90,7 +92,10 @@ CREATE TABLE IF NOT EXISTS payments (
 -- Seed data
 -- =============================================
 
-INSERT OR IGNORE INTO memberships (name, price_monthly, max_bookings_per_month, description, features) VALUES
-  ('Basic',   29.95, 8,  'Perfecte start voor beginners',    '["8 lessen per maand","Toegang tot alle basisklassen","App toegang"]'),
-  ('Premium', 49.95, 20, 'Meest populair voor enthousiaste sporters', '["20 lessen per maand","Alle klassen inclusief premium","Gratis handdoek","Locker"]'),
-  ('VIP',     79.95, -1, 'Onbeperkt sporten, alles inbegrepen', '["Onbeperkt lessen","Persoonlijk trainingsplan","Maandelijks voortgangsgesprek","Gratis sportvoeding","Prioriteit bij reservering"]');
+INSERT OR IGNORE INTO memberships (name, category, duration_months, price_monthly, max_bookings_per_month, description, features) VALUES
+  ('Jaar abonnement',      'Jeugd',      12, 45.00, -1, 'Jaarlijks jeugdabonnement — beste prijs',    '["Onbeperkt sporten","Jaarlijks abonnement","Laagste maandprijs","Alle faciliteiten","App toegang"]'),
+  ('Half jaar abonnement', 'Jeugd',       6, 50.00, -1, 'Halfjaarlijks jeugdabonnement',              '["Onbeperkt sporten","Half jaar abonnement","Alle faciliteiten","App toegang"]'),
+  ('Maand abonnement',     'Jeugd',       1, 55.00, -1, 'Flexibel maandelijks jeugdabonnement',       '["Onbeperkt sporten","Maandelijks opzegbaar","Maximale flexibiliteit","Alle faciliteiten","App toegang"]'),
+  ('Jaar abonnement',      'Volwassenen', 12, 55.00, -1, 'Jaarlijks abonnement 16+ — beste prijs',   '["Onbeperkt sporten","Jaarlijks abonnement","Laagste maandprijs","Alle faciliteiten","App toegang"]'),
+  ('Half jaar abonnement', 'Volwassenen',  6, 60.00, -1, 'Halfjaarlijks abonnement 16+',              '["Onbeperkt sporten","Half jaar abonnement","Alle faciliteiten","App toegang"]'),
+  ('Maand abonnement',     'Volwassenen',  1, 65.00, -1, 'Flexibel maandelijks abonnement 16+',       '["Onbeperkt sporten","Maandelijks opzegbaar","Maximale flexibiliteit","Alle faciliteiten","App toegang"]');
