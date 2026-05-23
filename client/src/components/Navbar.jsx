@@ -1,13 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut } from 'lucide-react'
+import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut, ShoppingBag, Shield } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-
-const NAV_LINKS = [
-  { to: '/dashboard',   label: 'Dashboard',    Icon: LayoutDashboard },
-  { to: '/schedule',    label: 'Lessen',        Icon: Calendar },
-  { to: '/memberships', label: 'Lidmaatschap',  Icon: CreditCard },
-  { to: '/profile',     label: 'Profiel',       Icon: UserCircle },
-]
 
 export default function Navbar() {
   const { user, logout } = useAuth()
@@ -21,6 +14,17 @@ export default function Navbar() {
     logout()
     navigate('/login')
   }
+
+  const NAV_LINKS = [
+    { to: '/dashboard',   label: 'Dashboard',    Icon: LayoutDashboard },
+    { to: '/schedule',    label: 'Lessen',        Icon: Calendar        },
+    { to: '/memberships', label: 'Lidmaatschap',  Icon: CreditCard      },
+    { to: '/shop',        label: 'Winkel',         Icon: ShoppingBag     },
+    { to: '/profile',     label: 'Profiel',        Icon: UserCircle      },
+    ...(user?.role === 'admin'
+      ? [{ to: '/admin', label: 'Admin', Icon: Shield }]
+      : []),
+  ]
 
   return (
     <>

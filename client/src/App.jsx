@@ -7,6 +7,8 @@ import DashboardPage from './pages/DashboardPage'
 import SchedulePage from './pages/SchedulePage'
 import MembershipsPage from './pages/MembershipsPage'
 import ProfilePage from './pages/ProfilePage'
+import ShopPage from './pages/ShopPage'
+import AdminPage from './pages/AdminPage'
 
 export default function App() {
   return (
@@ -22,7 +24,9 @@ export default function App() {
             <Route path="/dashboard"   element={<DashboardPage />} />
             <Route path="/schedule"    element={<SchedulePage />} />
             <Route path="/memberships" element={<MembershipsPage />} />
+            <Route path="/shop"        element={<ShopPage />} />
             <Route path="/profile"     element={<ProfilePage />} />
+            <Route path="/admin"       element={<AdminPage />} />
           </Route>
         </Route>
 

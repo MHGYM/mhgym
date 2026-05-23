@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../config/database');
+const { sendWelcomeEmail } = require('../services/emailService');
 
 const generateToken = (user) =>
   jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
@@ -28,6 +29,9 @@ const register = async (req, res) => {
   });
   const user = userRes.rows[0];
 
+  // Stuur welkomstmail (non-blocking)
+  sendWelcomeEmail({ to: user.email, firstName: user.first_name }).catch(() => {});
+
   res.status(201).json({ user, token: generateToken(user) });
 };
 
@@ -49,7 +53,7 @@ const login = async (req, res) => {
 // GET /api/auth/me
 const me = async (req, res) => {
   const membershipRes = await db.execute({
-    sql: `SELECT um.*, m.name AS membership_name, m.price_monthly, m.max_bookings_per_month
+    sql: `SELECT um.*, m.name AS membership_name, m.category, m.price_monthly, m.max_bookings_per_month
           FROM user_memberships um
           JOIN memberships m ON m.id = um.membership_id
           WHERE um.user_id = ? AND um.status = 'active'

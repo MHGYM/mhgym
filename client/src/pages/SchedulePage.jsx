@@ -2,7 +2,17 @@ import { useState, useEffect, useCallback } from 'react'
 import { Clock, MapPin, User, Users, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../api'
 
-const CATEGORIES = ['alle', 'yoga', 'spinning', 'crossfit', 'boxing', 'pilates', 'zumba', 'bootcamp']
+const CATEGORIES = ['alle', 'kickboksen', 'boksen', 'ladies-only', 'jeugd', 'kids', 'recreanten']
+
+const CATEGORY_LABEL = {
+  'alle':        'Alle lessen',
+  'kickboksen':  '🥊 Kickboksen',
+  'boksen':      '🥊 Boksen',
+  'ladies-only': '🌸 Ladies-Only',
+  'jeugd':       '🎯 Jeugd',
+  'kids':        '⭐ Kids',
+  'recreanten':  '💪 Recreanten',
+}
 
 function formatDate(str) {
   return new Date(str).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -138,7 +148,7 @@ export default function SchedulePage() {
             className={`filter-btn${category === cat ? ' active' : ''}`}
             onClick={() => setCategory(cat)}
           >
-            {cat === 'alle' ? 'Alle lessen' : cat}
+            {CATEGORY_LABEL[cat] || cat}
           </button>
         ))}
       </div>
