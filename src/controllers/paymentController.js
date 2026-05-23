@@ -15,19 +15,33 @@ const startCheckout = async (req, res) => {
   const totalAmount = (Number(membership.price_monthly) * durationMonths).toFixed(2);
 
   const webhookUrl  = process.env.MOLLIE_WEBHOOK_URL;
-  const redirectUrl = `${process.env.APP_BASE_URL}/betaling-geslaagd?membership=${membership_id}`;
+  const redirectUrl = `${process.env.FRONTEND_URL || process.env.APP_BASE_URL}/memberships?betaling=geslaagd`;
 
-  const payment = await mollieClient.payments.create({
-    amount: { currency: 'EUR', value: totalAmount },
-    description: `MHGym ${membership.name} — ${membership.category} — ${req.user.first_name} ${req.user.last_name}`,
-    redirectUrl,
-    webhookUrl,
-    metadata: {
-      type:          'membership',
-      user_id:       String(req.user.id),
-      membership_id: String(membership_id),
-    },
-  });
+  let payment;
+  try {
+    payment = await mollieClient.payments.create({
+      amount:      { currency: 'EUR', value: totalAmount },
+      description: `MHGym ${membership.name} (${membership.category})`,
+      redirectUrl,
+      webhookUrl,
+      locale:      'nl_NL',
+      metadata: {
+        type:          'membership',
+        user_id:       String(req.user.id),
+        membership_id: String(membership_id),
+      },
+    });
+  } catch (mollieErr) {
+    const msg = mollieErr?.message || 'Betaling aanmaken mislukt.';
+    console.error('[Mollie checkout] fout:', msg);
+    // Geef een begrijpelijke fout terug aan de frontend
+    if (msg.toLowerCase().includes('no suitable payment methods')) {
+      return res.status(502).json({
+        error: 'Geen betaalmethodes beschikbaar. Activeer iDEAL of creditcard in je Mollie dashboard.',
+      });
+    }
+    return res.status(502).json({ error: `Mollie fout: ${msg}` });
+  }
 
   await db.execute({
     sql: `INSERT INTO payments (user_id, mollie_payment_id, amount, description, type, membership_id, checkout_url)

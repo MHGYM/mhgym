@@ -96,6 +96,17 @@ export default function MembershipsPage() {
   const [success, setSuccess] = useState('')
   const [activeTab, setActiveTab] = useState('Volwassenen')
 
+  // Toon succesmelding als Mollie terugredirectt met ?betaling=geslaagd
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('betaling') === 'geslaagd') {
+      setSuccess('Betaling ontvangen! Je lidmaatschap wordt binnen enkele seconden geactiveerd.')
+      window.history.replaceState({}, '', '/memberships')
+      // Herlaad na 3s om membership status te vernieuwen
+      setTimeout(() => refreshUser(), 3000)
+    }
+  }, [])
+
   useEffect(() => {
     ;(async () => {
       try {

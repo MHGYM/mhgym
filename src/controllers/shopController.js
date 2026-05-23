@@ -72,17 +72,25 @@ const startShopCheckout = async (req, res) => {
   );
 
   // Mollie betaling aanmaken
-  const description = `MHGym Winkel — Bestelling #${orderId} (${req.user.first_name} ${req.user.last_name})`;
-  const redirectUrl = `${process.env.APP_BASE_URL}/bestelling-geslaagd?order=${orderId}`;
+  const description = `MHGym Winkel — Bestelling #${orderId}`;
+  const redirectUrl = `${process.env.FRONTEND_URL || process.env.APP_BASE_URL}/shop?bestelling=geslaagd`;
   const webhookUrl  = process.env.MOLLIE_WEBHOOK_URL;
 
-  const payment = await mollieClient.payments.create({
-    amount: { currency: 'EUR', value: Number(totalAmount).toFixed(2) },
-    description,
-    redirectUrl,
-    webhookUrl,
-    metadata: { type: 'shop', order_id: String(orderId), user_id: String(req.user.id) },
-  });
+  let payment;
+  try {
+    payment = await mollieClient.payments.create({
+      amount:   { currency: 'EUR', value: Number(totalAmount).toFixed(2) },
+      description,
+      redirectUrl,
+      webhookUrl,
+      locale:   'nl_NL',
+      metadata: { type: 'shop', order_id: String(orderId), user_id: String(req.user.id) },
+    });
+  } catch (mollieErr) {
+    const msg = mollieErr?.message || 'Betaling aanmaken mislukt.';
+    console.error('[Mollie shop] fout:', msg);
+    return res.status(502).json({ error: `Mollie fout: ${msg}` });
+  }
 
   // Koppel Mollie payment aan order
   await db.execute({

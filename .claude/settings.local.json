@@ -2,7 +2,20 @@
   "permissions": {
     "allow": [
       "Read(//mnt/c/Projecten/**)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(taskkill /F /IM node.exe)",
+      "PowerShell(Get-Process -Name \"node\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force)",
+      "Bash(node -e ' *)",
+      "Bash(start \"MHGym Backend\" cmd /k \"node server.js\")",
+      "Bash(start \"MHGym Frontend\" cmd /k \"node \\\\\"C:\\\\Program Files\\\\nodejs\\\\node_modules\\\\npm\\\\bin\\\\npm-cli.js\\\\\" run dev\")",
+      "Bash(node server.js)",
+      "PowerShell(Start-Sleep -Seconds 4; try { \\(Invoke-WebRequest -Uri \"http://localhost:3000/health\" -UseBasicParsing\\).Content } catch { \"still waiting...\" })",
+      "Bash(node \"C:\\\\Program Files\\\\nodejs\\\\node_modules\\\\npm\\\\bin\\\\npm-cli.js\" run dev)",
+      "Bash(start notepad *)",
+      "Bash(node migrations/004_fix_schedule_and_products.js)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

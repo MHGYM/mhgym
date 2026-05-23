@@ -1,16 +1,63 @@
 import { useState, useEffect } from 'react'
-import { ShoppingCart, X, Plus, Minus, Trash2, AlertCircle, Package } from 'lucide-react'
+import { ShoppingCart, X, Plus, Minus, Trash2, AlertCircle } from 'lucide-react'
 import api from '../api'
 
-// Emoji per categorie
-const CATEGORY_EMOJI = {
-  handschoenen: '🥊',
-  bescherming:  '🛡️',
-  kleding:      '👕',
-  accessoires:  '⚡',
+const CATEGORIES = ['alle', 'sets', 'handschoenen', 'bescherming', 'kleding']
+
+const CATEGORY_LABEL = {
+  alle:         'Alle producten',
+  sets:         '🎁 Sets',
+  handschoenen: '🥊 Handschoenen',
+  bescherming:  '🛡️ Bescherming',
+  kleding:      '👕 Kleding',
 }
 
-const CATEGORIES = ['alle', 'handschoenen', 'bescherming', 'kleding', 'accessoires']
+// MHGym-branded SVG placeholder (yellow/black)
+function ProductPlaceholder() {
+  return (
+    <div style={{
+      width: '100%', aspectRatio: '1',
+      background: 'linear-gradient(135deg, #1a1500 0%, #0d0b00 100%)',
+      border: '1px solid rgba(245,194,0,0.3)',
+      borderRadius: 'var(--r)',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      gap: '0.1rem',
+    }}>
+      <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#F5C200', letterSpacing: '-2px', lineHeight: 1 }}>MH</div>
+      <div style={{ fontSize: '0.55rem', fontWeight: 800, color: '#F5C200', letterSpacing: '4px' }}>GYM</div>
+      <div style={{ fontSize: '1.4rem', marginTop: '0.25rem' }}>🥊</div>
+    </div>
+  )
+}
+
+// Module-level setCart ref (for CartItemRow to access without prop drilling)
+let _setCart = null
+
+function CartItemRow({ item }) {
+  const updateQty = (delta) => {
+    _setCart((prev) => {
+      const updated = prev.map((i) => i.id === item.id ? { ...i, qty: i.qty + delta } : i)
+      return updated.filter((i) => i.qty > 0)
+    })
+  }
+  return (
+    <div className="cart-item">
+      <div style={{ width: 40, height: 40, flexShrink: 0 }}><ProductPlaceholder /></div>
+      <div className="cart-item-info">
+        <div className="cart-item-name">{item.name}</div>
+        <div className="cart-item-price">€{(item.price * item.qty).toFixed(2).replace('.', ',')}</div>
+      </div>
+      <div className="cart-qty-ctrl">
+        <button className="cart-qty-btn" onClick={() => updateQty(-1)}>
+          {item.qty === 1 ? <Trash2 size={11} /> : <Minus size={11} />}
+        </button>
+        <span style={{ fontWeight: 700, minWidth: '1.5rem', textAlign: 'center', fontSize: '0.9rem' }}>{item.qty}</span>
+        <button className="cart-qty-btn" onClick={() => updateQty(1)}><Plus size={11} /></button>
+      </div>
+    </div>
+  )
+}
 
 function CartSidebar({ cart, onClose, onCheckout, checkingOut }) {
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0)
@@ -36,9 +83,7 @@ function CartSidebar({ cart, onClose, onCheckout, checkingOut }) {
               <p>Je winkelwagen is leeg</p>
             </div>
           ) : (
-            cart.map((item) => (
-              <CartItemRow key={item.id} item={item} />
-            ))
+            cart.map((item) => <CartItemRow key={item.id} item={item} />)
           )}
         </div>
 
@@ -50,11 +95,7 @@ function CartSidebar({ cart, onClose, onCheckout, checkingOut }) {
                 €{total.toFixed(2).replace('.', ',')}
               </span>
             </div>
-            <button
-              className="btn btn-primary btn-full btn-lg"
-              onClick={onCheckout}
-              disabled={checkingOut}
-            >
+            <button className="btn btn-primary btn-full btn-lg" onClick={onCheckout} disabled={checkingOut}>
               {checkingOut ? <span className="spinner spinner-sm" /> : <>Afrekenen <ShoppingCart size={16} /></>}
             </button>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
@@ -67,31 +108,11 @@ function CartSidebar({ cart, onClose, onCheckout, checkingOut }) {
   )
 }
 
-// CartItemRow needs access to setCart — pass as context
-let _setCart = null
-
-function CartItemRow({ item }) {
-  const updateQty = (delta) => {
-    _setCart((prev) => {
-      const updated = prev.map((i) => i.id === item.id ? { ...i, qty: i.qty + delta } : i)
-      return updated.filter((i) => i.qty > 0)
-    })
-  }
-
-  return (
-    <div className="cart-item">
-      <div className="cart-item-emoji">{CATEGORY_EMOJI[item.category] || '📦'}</div>
-      <div className="cart-item-info">
-        <div className="cart-item-name">{item.name}</div>
-        <div className="cart-item-price">€{(item.price * item.qty).toFixed(2).replace('.', ',')}</div>
-      </div>
-      <div className="cart-qty-ctrl">
-        <button className="cart-qty-btn" onClick={() => updateQty(-1)}><Minus size={12} /></button>
-        <span style={{ fontSize: '0.9rem', fontWeight: 700, minWidth: '1.5rem', textAlign: 'center' }}>{item.qty}</span>
-        <button className="cart-qty-btn" onClick={() => updateQty(1)}><Plus size={12} /></button>
-      </div>
-    </div>
-  )
+// Extract "GRATIS ..." bonus from description
+function extractBonus(description) {
+  if (!description) return null
+  const match = description.match(/GRATIS ([^!]+)!/i)
+  return match ? `GRATIS ${match[1]}!` : null
 }
 
 export default function ShopPage() {
@@ -104,19 +125,23 @@ export default function ShopPage() {
   const [error, setError]       = useState('')
   const [success, setSuccess]   = useState('')
 
-  _setCart = setCart // expose for CartItemRow
+  _setCart = setCart
 
   useEffect(() => {
-    ;(async () => {
-      try {
-        const res = await api.get('/shop/products')
-        setProducts(res.data.products)
-      } catch (e) {
-        console.error(e)
-      } finally {
-        setLoading(false)
-      }
-    })()
+    // Succesmelding na Mollie redirect
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('bestelling') === 'geslaagd') {
+      setSuccess('Bestelling geplaatst! Je ontvangt een bevestiging. Afhalen bij de balie.')
+      window.history.replaceState({}, '', '/shop')
+      setCart([])
+    }
+  }, [])
+
+  useEffect(() => {
+    api.get('/shop/products')
+      .then((r) => setProducts(r.data.products))
+      .catch(console.error)
+      .finally(() => setLoading(false))
   }, [])
 
   const addToCart = (product) => {
@@ -142,14 +167,12 @@ export default function ShopPage() {
   }
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0)
-
-  const visible = products.filter((p) => category === 'alle' || p.category === category)
+  const visible   = products.filter((p) => category === 'alle' || p.category === category)
 
   if (loading) return <div className="page loading-center"><div className="spinner" /></div>
 
   return (
     <div className="page">
-      {/* Cart sidebar */}
       {cartOpen && (
         <CartSidebar
           cart={cart}
@@ -159,21 +182,16 @@ export default function ShopPage() {
         />
       )}
 
+      {/* Header */}
       <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1>Bokswinkel</h1>
           <p>Officiële MHGym boksuitrusting en kleding</p>
         </div>
-        <button
-          className="btn btn-ghost"
-          onClick={() => setCartOpen(true)}
-          style={{ position: 'relative' }}
-        >
+        <button className="btn btn-ghost" onClick={() => setCartOpen(true)} style={{ position: 'relative' }}>
           <ShoppingCart size={18} />
           Winkelwagen
-          {cartCount > 0 && (
-            <span className="cart-badge">{cartCount}</span>
-          )}
+          {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
         </button>
       </div>
 
@@ -183,16 +201,8 @@ export default function ShopPage() {
       {/* Category filter */}
       <div className="filter-bar">
         {CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            className={`filter-btn${category === cat ? ' active' : ''}`}
-            onClick={() => setCategory(cat)}
-          >
-            {cat === 'alle' ? (
-              'Alle producten'
-            ) : (
-              <>{CATEGORY_EMOJI[cat]} {cat}</>
-            )}
+          <button key={cat} className={`filter-btn${category === cat ? ' active' : ''}`} onClick={() => setCategory(cat)}>
+            {CATEGORY_LABEL[cat] || cat}
           </button>
         ))}
       </div>
@@ -200,59 +210,72 @@ export default function ShopPage() {
       {/* Product grid */}
       {visible.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon"><Package size={48} opacity={0.3} /></div>
+          <div className="empty-state-icon" style={{ fontSize: '3rem' }}>📦</div>
           <h3>Geen producten gevonden</h3>
           <p>Probeer een andere categorie.</p>
         </div>
       ) : (
         <div className="shop-grid">
           {visible.map((product) => {
-            const inCart = cart.find((i) => i.id === product.id)
-            const emoji  = CATEGORY_EMOJI[product.category] || '📦'
-            const stockNum = Number(product.stock)
+            const inCart     = cart.find((i) => i.id === product.id)
+            const stockNum   = Number(product.stock)
             const outOfStock = stockNum === 0
             const lowStock   = stockNum > 0 && stockNum <= 3
+            const bonus      = product.bonus || extractBonus(product.description)
 
             return (
               <div key={product.id} className="product-card">
-                <div className="product-image">{emoji}</div>
+                {/* Image placeholder */}
+                <div style={{ position: 'relative' }}>
+                  <ProductPlaceholder />
+                  {bonus && (
+                    <div style={{
+                      position: 'absolute', top: 8, right: 8,
+                      background: 'var(--accent)', color: '#000',
+                      fontSize: '0.65rem', fontWeight: 800,
+                      padding: '0.2rem 0.6rem', borderRadius: 99,
+                      letterSpacing: '0.03em', whiteSpace: 'nowrap',
+                    }}>
+                      🎁 {bonus}
+                    </div>
+                  )}
+                </div>
 
-                <div>
-                  <span className={`badge badge-${product.category}`} style={{ marginBottom: '0.5rem' }}>
+                {/* Info */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <span className={`badge badge-${product.category}`} style={{ alignSelf: 'flex-start' }}>
                     {product.category}
                   </span>
                   <div className="product-name">{product.name}</div>
-                  <div className="product-desc">{product.description}</div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                  <div>
-                    <div className="product-price">€{Number(product.price).toFixed(2).replace('.', ',')}</div>
-                    {outOfStock ? (
-                      <div className="product-stock out">Uitverkocht</div>
-                    ) : lowStock ? (
-                      <div className="product-stock low">Nog {product.stock} op voorraad</div>
-                    ) : (
-                      <div className="product-stock">Op voorraad</div>
-                    )}
+                  {/* Description without the GRATIS part (shown as badge) */}
+                  <div className="product-desc">
+                    {product.description?.replace(/\.\s*GRATIS[^!]+!/i, '').trim()}
                   </div>
                 </div>
 
+                {/* Price + stock */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+                  <div>
+                    <div className="product-price">€{Number(product.price).toFixed(2).replace('.', ',')}</div>
+                    {outOfStock  && <div className="product-stock out">Uitverkocht</div>}
+                    {lowStock    && <div className="product-stock low">Nog {product.stock} op voorraad</div>}
+                    {!outOfStock && !lowStock && <div className="product-stock">Op voorraad</div>}
+                  </div>
+                </div>
+
+                {/* Cart button */}
                 {inCart ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <button className="cart-qty-btn" onClick={() => _setCart((prev) => {
-                        const updated = prev.map((i) => i.id === product.id ? { ...i, qty: i.qty - 1 } : i)
-                        return updated.filter((i) => i.qty > 0)
-                      })}>
+                      <button className="cart-qty-btn" onClick={() =>
+                        _setCart((prev) => prev.map((i) => i.id === product.id ? { ...i, qty: i.qty - 1 } : i).filter((i) => i.qty > 0))
+                      }>
                         {inCart.qty === 1 ? <Trash2 size={12} /> : <Minus size={12} />}
                       </button>
                       <span style={{ fontWeight: 700, minWidth: '1.5rem', textAlign: 'center' }}>{inCart.qty}</span>
                       <button className="cart-qty-btn" onClick={() => addToCart(product)}><Plus size={12} /></button>
                     </div>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setCartOpen(true)}>
-                      Bekijk
-                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setCartOpen(true)}>Bekijk</button>
                   </div>
                 ) : (
                   <button
@@ -281,7 +304,7 @@ export default function ShopPage() {
           { icon: '🔒', text: 'Veilig betalen via Mollie' },
           { icon: '🏪', text: 'Afhalen bij de balie' },
           { icon: '🥊', text: 'Officiële MHGym producten' },
-          { icon: '✅', text: 'Direct beschikbaar na betaling' },
+          { icon: '🎁', text: 'Sets met gratis extra\'s' },
         ].map(({ icon, text }) => (
           <div key={text} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             <span>{icon}</span>{text}
