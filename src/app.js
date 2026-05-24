@@ -30,6 +30,7 @@ app.use('/api/pt',          require('./routes/pt'));
 app.use('/api/agenda',      require('./routes/agenda'));
 app.use('/api/vt',          require('./routes/vrijTrainen'));
 app.use('/api/community',   require('./routes/community'));
+app.use('/api/cash',        require('./routes/cash'));
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() }));

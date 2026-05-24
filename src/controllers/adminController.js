@@ -64,7 +64,7 @@ const getMember = async (req, res) => {
   });
   if (!userRes.rows[0]) return res.status(404).json({ error: 'Lid niet gevonden.' });
 
-  const [membershipRes, bookingRes, paymentRes, ptRes, vtRes] = await Promise.all([
+  const [membershipRes, bookingRes, paymentRes, ptRes, vtRes, cashRes, fondsRes] = await Promise.all([
     db.execute({
       sql: `SELECT um.*, m.name AS membership_name, m.category FROM user_memberships um LEFT JOIN memberships m ON m.id = um.membership_id WHERE um.user_id = ? ORDER BY um.created_at DESC`,
       args: [req.params.id],
@@ -85,6 +85,14 @@ const getMember = async (req, res) => {
       sql: `SELECT * FROM vrij_trainen_bookings WHERE user_id = ? ORDER BY date DESC LIMIT 20`,
       args: [req.params.id],
     }),
+    db.execute({
+      sql: `SELECT * FROM cash_payments WHERE user_id = ? ORDER BY payment_date DESC LIMIT 30`,
+      args: [req.params.id],
+    }),
+    db.execute({
+      sql: `SELECT *, ROUND(julianday(end_date) - julianday('now')) AS days_remaining FROM fonds_members WHERE user_id = ? ORDER BY created_at DESC`,
+      args: [req.params.id],
+    }),
   ]);
 
   const member = { ...userRes.rows[0] };
@@ -92,11 +100,13 @@ const getMember = async (req, res) => {
 
   res.json({
     member,
-    memberships:  membershipRes.rows,
-    bookings:     bookingRes.rows,
-    payments:     paymentRes.rows,
-    pt_sessions:  ptRes.rows,
-    vt_bookings:  vtRes.rows,
+    memberships:     membershipRes.rows,
+    bookings:        bookingRes.rows,
+    payments:        paymentRes.rows,
+    pt_sessions:     ptRes.rows,
+    vt_bookings:     vtRes.rows,
+    cash_payments:   cashRes.rows,
+    fonds:           fondsRes.rows,
     membership_types: MEMBERSHIP_TYPES,
   });
 };
@@ -126,13 +136,35 @@ const pauseMembership = async (req, res) => {
   res.json({ message: paused ? 'Lidmaatschap gepauzeerd.' : 'Lidmaatschap hervat.' });
 };
 
-// Admin wijst handmatig lidmaatschap toe (voor cash-betalers)
+// Admin wijst handmatig lidmaatschap toe (Mollie, Cash kwartaal of Fonds)
 const assignMembership = async (req, res) => {
-  const { membership_type_key, admin_price, start_date, is_cash, cash_paid, notes } = req.body;
+  const {
+    membership_type_key, admin_price, start_date, is_cash, cash_paid, notes,
+    payment_type,      // 'mollie' | 'cash' | 'fonds'
+    quarterly_amount,  // voor cash kwartaal
+    // fonds velden
+    fonds_type, fonds_name, fonds_end_date, fonds_amount_covered,
+  } = req.body;
   if (!membership_type_key) return res.status(400).json({ error: 'membership_type_key is verplicht.' });
 
   const mtype = MEMBERSHIP_TYPES.find((t) => t.key === membership_type_key);
   if (!mtype) return res.status(404).json({ error: 'Onbekend lidmaatschapstype.' });
+
+  const pType     = payment_type || (is_cash ? 'cash' : 'mollie');
+  const startDate = start_date || new Date().toISOString().split('T')[0];
+  const endDate   = mtype.duration_months ? (() => {
+    const d = new Date(startDate);
+    d.setMonth(d.getMonth() + mtype.duration_months);
+    return d.toISOString().split('T')[0];
+  })() : null;
+
+  // Bereken kwartaalvervaldatum als cash-kwartaal
+  const nextQuarterDue = (pType === 'cash' && quarterly_amount) ? (() => {
+    const d = new Date(startDate);
+    d.setMonth(d.getMonth() + 3);
+    return d.toISOString().split('T')[0];
+  })() : null;
+  const lastQuarterPaid = (pType === 'cash' && quarterly_amount) ? startDate : null;
 
   // Deactiveer bestaand actief lidmaatschap
   await db.execute({
@@ -140,63 +172,71 @@ const assignMembership = async (req, res) => {
     args: [req.params.id],
   });
 
-  const startDate   = start_date || new Date().toISOString().split('T')[0];
-  const endDate     = mtype.duration_months ? (() => {
-    const d = new Date(startDate);
-    d.setMonth(d.getMonth() + mtype.duration_months);
-    return d.toISOString().split('T')[0];
-  })() : null;
-
   // Zoek of maak een membership record
   let membershipId = null;
-  const existingM = await db.execute({
-    sql: `SELECT id FROM memberships WHERE name = ?`,
-    args: [mtype.label],
-  });
+  const existingM = await db.execute({ sql: `SELECT id FROM memberships WHERE name = ?`, args: [mtype.label] });
   if (existingM.rows[0]) {
     membershipId = existingM.rows[0].id;
   } else {
     const ins = await db.execute({
-      sql: `INSERT INTO memberships (name, category, price_monthly, duration_months, minimum_months, features, notice_period_months)
-            VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      sql: `INSERT INTO memberships (name, category, price_monthly, duration_months, minimum_months, features, notice_period_months) VALUES (?, ?, ?, ?, ?, ?, 1)`,
       args: [mtype.label, mtype.category, mtype.price_monthly || admin_price || 0, mtype.duration_months || 1, mtype.minimum_months || 1, '[]'],
     });
     membershipId = ins.lastInsertRowid;
   }
 
   const result = await db.execute({
-    sql: `INSERT INTO user_memberships (user_id, membership_id, status, start_date, end_date, is_cash, cash_paid, admin_price, membership_type_key)
-          VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
-    args: [req.params.id, membershipId, startDate, endDate, is_cash ? 1 : 0, cash_paid ? 1 : 0, admin_price || null, membership_type_key],
+    sql: `INSERT INTO user_memberships
+          (user_id, membership_id, status, start_date, end_date, is_cash, cash_paid, admin_price, membership_type_key,
+           payment_type, quarterly_amount, next_quarter_due, last_quarter_paid)
+          VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      req.params.id, membershipId, startDate, endDate,
+      (pType === 'cash' || is_cash) ? 1 : 0,
+      cash_paid ? 1 : 0,
+      admin_price || null,
+      membership_type_key,
+      pType,
+      quarterly_amount ? Number(quarterly_amount) : null,
+      nextQuarterDue,
+      lastQuarterPaid,
+    ],
   });
+  const newMembershipId = result.lastInsertRowid;
 
-  // Als het PT lessen zijn, maak ook een pt_purchase aan
+  // Fonds: maak een fonds_members record en koppel
+  if (pType === 'fonds' && fonds_type && fonds_end_date) {
+    const fondsRes = await db.execute({
+      sql: `INSERT INTO fonds_members (user_id, fonds_type, fonds_name, start_date, end_date, amount_covered, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [req.params.id, fonds_type, fonds_name || fonds_type, startDate, fonds_end_date, fonds_amount_covered || null, req.user.id],
+    });
+    await db.execute({
+      sql: `UPDATE user_memberships SET fonds_member_id = ? WHERE id = ?`,
+      args: [fondsRes.lastInsertRowid, newMembershipId],
+    });
+  }
+
+  // PT lessen aanmaken
   if (mtype.category === 'pt' && mtype.lessons) {
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + 1);
     await db.execute({
-      sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, status, expires_at)
-            VALUES (?, ?, ?, ?, 0, 'paid', ?)`,
+      sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, status, expires_at) VALUES (?, ?, ?, ?, 0, 'paid', ?)`,
       args: [req.params.id, mtype.key, mtype.lessons, mtype.lessons, expiresAt.toISOString().split('T')[0]],
     });
   }
 
-  // Is cash betaler markeren
-  if (is_cash) {
-    await db.execute({
-      sql: `UPDATE users SET is_cash_payer = 1, updated_at = datetime('now') WHERE id = ?`,
-      args: [req.params.id],
-    });
+  // Cash betaler markeren
+  if (pType === 'cash' || is_cash) {
+    await db.execute({ sql: `UPDATE users SET is_cash_payer = 1, updated_at = datetime('now') WHERE id = ?`, args: [req.params.id] });
   }
 
   if (notes) {
-    await db.execute({
-      sql: `UPDATE users SET admin_notes = ?, updated_at = datetime('now') WHERE id = ?`,
-      args: [notes, req.params.id],
-    });
+    await db.execute({ sql: `UPDATE users SET admin_notes = ?, updated_at = datetime('now') WHERE id = ?`, args: [notes, req.params.id] });
   }
 
-  res.status(201).json({ message: `Lidmaatschap "${mtype.label}" toegewezen.` });
+  res.status(201).json({ message: `Lidmaatschap "${mtype.label}" toegewezen (${pType}).` });
 };
 
 const markCashPaid = async (req, res) => {
@@ -480,7 +520,17 @@ const processAutoReminders = async (req, res) => {
 
   for (const pf of failures.rows) {
     const daysOld = Math.floor((now - new Date(pf.created_at)) / 86400000);
-    const total   = (Number(pf.amount) + Number(pf.surcharge_added || 0)).toFixed(2);
+
+    // ── €10 toeslag bij tweede stornering ─────────────────────────────────────
+    if (pf.failure_count >= 2 && (!pf.surcharge_added || Number(pf.surcharge_added) === 0)) {
+      await db.execute({
+        sql: `UPDATE payment_failures SET surcharge_added = 10, updated_at = datetime('now') WHERE id = ?`,
+        args: [pf.id],
+      });
+      await sendPush(pf.user_id, '⚠️ €10 administratiekosten toegevoegd', 'Wegens een tweede mislukte betaling zijn €10 administratiekosten in rekening gebracht.').catch(() => {});
+    }
+
+    const total = (Number(pf.amount) + Number(pf.surcharge_added || 0) + (pf.failure_count >= 2 && !pf.surcharge_added ? 10 : 0)).toFixed(2);
 
     // Dag 0 — directe herinnering
     if (daysOld >= 0 && !pf.reminder_day0_sent) {

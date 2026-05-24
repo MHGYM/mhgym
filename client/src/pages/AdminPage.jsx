@@ -3,7 +3,8 @@ import {
   LayoutDashboard, Users, Calendar, CreditCard,
   Zap, AlertTriangle, Users2,
   Search, Plus, Check, X, Euro, Clock, Edit2, Trash2,
-  Bell, PauseCircle, PlayCircle, Pin, Crown, Link, ChevronLeft, RefreshCw
+  Bell, PauseCircle, PlayCircle, Pin, Crown, Link, ChevronLeft, RefreshCw,
+  TrendingUp, Banknote, FileText, ChevronDown, ChevronUp
 } from 'lucide-react'
 import api from '../api'
 
@@ -102,6 +103,12 @@ function LedenSection() {
   const [assignPaid,    setAssignPaid]    = useState(false)
   const [assignStart,   setAssignStart]   = useState(new Date().toISOString().split('T')[0])
   const [assignNotes,   setAssignNotes]   = useState('')
+  const [assignPayment, setAssignPayment] = useState('mollie')    // 'mollie'|'cash'|'fonds'
+  const [assignQuarter, setAssignQuarter] = useState('')          // kwartaalbedrag
+  const [fondsType,     setFondsType]     = useState('jeugdfonds')
+  const [fondsName,     setFondsName]     = useState('')
+  const [fondsEnd,      setFondsEnd]      = useState('')
+  const [fondsBedrag,   setFondsBedrag]   = useState('')
   const [showPtAdd,     setShowPtAdd]     = useState(false)
   const [ptLessons,     setPtLessons]     = useState('')
   const [ptNotes,       setPtNotes]       = useState('')
@@ -142,8 +149,14 @@ function LedenSection() {
       await api.post(`/admin/members/${selected}/membership`, {
         membership_type_key: assignType,
         admin_price: needsPrice ? (parseFloat(assignPrice) || null) : null,
-        is_cash: assignCash, cash_paid: assignPaid,
+        is_cash: assignPayment === 'cash', cash_paid: assignPaid,
         start_date: assignStart, notes: assignNotes || undefined,
+        payment_type: assignPayment,
+        quarterly_amount: assignPayment === 'cash' ? (parseFloat(assignQuarter) || null) : null,
+        fonds_type: assignPayment === 'fonds' ? fondsType : undefined,
+        fonds_name: assignPayment === 'fonds' ? (fondsName || fondsType) : undefined,
+        fonds_end_date: assignPayment === 'fonds' ? fondsEnd : undefined,
+        fonds_amount_covered: assignPayment === 'fonds' ? (parseFloat(fondsBedrag) || null) : undefined,
       })
       setShowAssign(false); openMember(selected); loadMembers(search)
     } catch (e) { alert(e.response?.data?.error || 'Fout') }
@@ -296,6 +309,8 @@ function LedenSection() {
                 {showAssign && (
                   <div style={{padding:'1rem',background:'var(--surface-3)',borderRadius:'var(--r)',display:'flex',flexDirection:'column',gap:'0.6rem'}}>
                     <h4 style={{margin:0,fontSize:'0.875rem'}}>Lidmaatschap toewijzen</h4>
+
+                    {/* Type */}
                     <select className="input" value={assignType} onChange={e => setAssignType(e.target.value)}>
                       {['Groepslessen','Vrij Trainen','PT','PT Abo'].map(cat => (
                         <optgroup key={cat} label={cat}>
@@ -307,18 +322,69 @@ function LedenSection() {
                         </optgroup>
                       ))}
                     </select>
+
+                    {/* Prijs */}
                     {needsPrice && (
                       <div>
                         <label className="input-label">{selectedMtype?.category==='PT Abo'?'Prijs/maand':'Prijs'} (€)</label>
                         <input className="input" type="number" value={assignPrice} onChange={e => setAssignPrice(e.target.value)} placeholder={selectedMtype?.price_monthly||selectedMtype?.price_per_lesson||''}/>
                       </div>
                     )}
+
+                    {/* Betalingsmethode */}
+                    <div>
+                      <label className="input-label">Betalingsmethode</label>
+                      <div style={{display:'flex',gap:'0.4rem'}}>
+                        {[['mollie','💳 Mollie'],['cash','💵 Cash kwartaal'],['fonds','🏛️ Fonds']].map(([k,l]) => (
+                          <button key={k} className={`btn btn-sm${assignPayment===k?' btn-primary':' btn-ghost'}`} style={{flex:1,fontSize:'0.78rem'}} onClick={() => setAssignPayment(k)}>{l}</button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Cash kwartaal velden */}
+                    {assignPayment === 'cash' && (
+                      <div>
+                        <label className="input-label">Kwartaalbedrag (€)</label>
+                        <input className="input" type="number" placeholder="150" value={assignQuarter} onChange={e => setAssignQuarter(e.target.value)}/>
+                        <p style={{fontSize:'0.75rem',color:'var(--text-muted)',marginTop:3}}>Elke 3 maanden te betalen aan de balie</p>
+                      </div>
+                    )}
+
+                    {/* Fonds velden */}
+                    {assignPayment === 'fonds' && (
+                      <div style={{display:'flex',flexDirection:'column',gap:'0.5rem',padding:'0.6rem',background:'var(--surface-2)',borderRadius:'var(--r)'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem'}}>
+                          <div>
+                            <label className="input-label">Fonds type</label>
+                            <select className="input" value={fondsType} onChange={e => setFondsType(e.target.value)}>
+                              <option value="jeugdfonds">Jeugdfonds</option>
+                              <option value="volwassenenfonds">Volwassenenfonds</option>
+                              <option value="overig">Overig</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="input-label">Fonds naam</label>
+                            <input className="input" placeholder="Optioneel" value={fondsName} onChange={e => setFondsName(e.target.value)}/>
+                          </div>
+                          <div>
+                            <label className="input-label">Einddatum fonds</label>
+                            <input className="input" type="date" value={fondsEnd} onChange={e => setFondsEnd(e.target.value)}/>
+                          </div>
+                          <div>
+                            <label className="input-label">Bedrag gedekt (€)</label>
+                            <input className="input" type="number" placeholder="0" value={fondsBedrag} onChange={e => setFondsBedrag(e.target.value)}/>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
                       <div><label className="input-label">Startdatum</label><input className="input" type="date" value={assignStart} onChange={e => setAssignStart(e.target.value)}/></div>
-                      <div style={{display:'flex',flexDirection:'column',gap:4,justifyContent:'flex-end'}}>
-                        <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.83rem',cursor:'pointer'}}><input type="checkbox" checked={assignCash} onChange={e=>setAssignCash(e.target.checked)}/> Cash betaler</label>
-                        {assignCash && <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.83rem',cursor:'pointer'}}><input type="checkbox" checked={assignPaid} onChange={e=>setAssignPaid(e.target.checked)}/> Al betaald</label>}
-                      </div>
+                      {assignPayment === 'mollie' && (
+                        <div style={{display:'flex',flexDirection:'column',gap:4,justifyContent:'flex-end'}}>
+                          <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.83rem',cursor:'pointer'}}><input type="checkbox" checked={assignPaid} onChange={e=>setAssignPaid(e.target.checked)}/> Eerste betaling ontvangen</label>
+                        </div>
+                      )}
                     </div>
                     <input className="input" value={assignNotes} onChange={e=>setAssignNotes(e.target.value)} placeholder="Notitie (optioneel)"/>
                     <div style={{display:'flex',gap:'0.5rem'}}>
@@ -343,6 +409,109 @@ function LedenSection() {
                   </div>
                 )}
               </div>
+
+              {/* Betalingstype & kwartaal info */}
+              {activeMem && (
+                <div className="card">
+                  <h3 style={{marginBottom:'0.75rem'}}>Betalingstype</h3>
+                  <div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginBottom:'0.5rem'}}>
+                    {activeMem.payment_type === 'mollie' && <span className="badge-neutral">💳 Mollie (automatisch)</span>}
+                    {activeMem.payment_type === 'cash'   && <span className="badge-warning">💵 Cash kwartaal</span>}
+                    {activeMem.payment_type === 'fonds'  && <span style={{padding:'2px 8px',borderRadius:10,background:'rgba(99,102,241,0.2)',color:'#818cf8',fontSize:'0.78rem',fontWeight:600}}>🏛️ Fonds</span>}
+                    {(!activeMem.payment_type || activeMem.payment_type === 'mollie') && null}
+                  </div>
+
+                  {/* Cash kwartaal tracking */}
+                  {activeMem.payment_type === 'cash' && (
+                    <div style={{background:'var(--surface-2)',borderRadius:8,padding:'0.6rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
+                        <span style={{color:'var(--text-muted)'}}>Kwartaalbedrag</span>
+                        <span style={{fontWeight:700}}>€{activeMem.quarterly_amount||'—'}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
+                        <span style={{color:'var(--text-muted)'}}>Laatste betaling</span>
+                        <span>{activeMem.last_quarter_paid?fmtDate(activeMem.last_quarter_paid):'—'}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
+                        <span style={{color:'var(--text-muted)'}}>Volgende betaling</span>
+                        {activeMem.next_quarter_due ? (
+                          <span style={{fontWeight:700,color:new Date(activeMem.next_quarter_due)<new Date(Date.now()+14*86400000)?'var(--warning)':'var(--success)'}}>
+                            {fmtDate(activeMem.next_quarter_due)}
+                          </span>
+                        ) : <span>—</span>}
+                      </div>
+                      <button className="btn btn-primary btn-sm" style={{marginTop:'0.4rem',alignSelf:'flex-start'}}
+                        onClick={async () => {
+                          const amount = prompt('Bedrag ontvangen (€):', activeMem.quarterly_amount||'150')
+                          if (!amount) return
+                          try {
+                            const r = await api.put(`/cash/memberships/${activeMem.id}/quarterly-paid`, {
+                              amount: parseFloat(amount),
+                              note: `Cash kwartaalbetaling ontvangen`,
+                            })
+                            alert(`Geregistreerd! Volgende betaling: ${r.data.next_due}`)
+                            openMember(selected)
+                          } catch(e) { alert(e.response?.data?.error||'Fout') }
+                        }}>
+                        <Check size={13}/> Kwartaalbetaling ontvangen
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Fonds info */}
+                  {activeMem.payment_type === 'fonds' && detail.fonds?.length > 0 && (() => {
+                    const fonds = detail.fonds[0]
+                    const daysLeft = Number(fonds.days_remaining || 0)
+                    const urgentColor = daysLeft < 7 ? 'var(--error)' : daysLeft < 14 ? 'var(--warning)' : 'var(--success)'
+                    return (
+                      <div style={{background:'var(--surface-2)',borderRadius:8,padding:'0.6rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
+                          <span style={{color:'var(--text-muted)'}}>Fonds</span>
+                          <span style={{fontWeight:600}}>{fonds.fonds_name||fonds.fonds_type}</span>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
+                          <span style={{color:'var(--text-muted)'}}>Einddatum</span>
+                          <span style={{fontWeight:700,color:urgentColor}}>{fonds.end_date} ({daysLeft > 0 ? `${Math.round(daysLeft)}d resterend` : 'VERLOPEN'})</span>
+                        </div>
+                        {fonds.amount_covered && (
+                          <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
+                            <span style={{color:'var(--text-muted)'}}>Bedrag gedekt</span>
+                            <span>{fmtMoney(fonds.amount_covered)}</span>
+                          </div>
+                        )}
+                        <button className="btn btn-outline btn-sm" style={{marginTop:'0.4rem',alignSelf:'flex-start'}}
+                          onClick={async () => {
+                            const newEnd = prompt('Nieuwe einddatum (YYYY-MM-DD):', fonds.end_date)
+                            if (!newEnd) return
+                            try {
+                              await api.put(`/cash/fonds/${fonds.id}`, { end_date: newEnd, status: 'active' })
+                              alert('Fonds verlengd!')
+                              openMember(selected)
+                            } catch(e) { alert(e.response?.data?.error||'Fout') }
+                          }}>
+                          Verlengen
+                        </button>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Cash betalingshistorie */}
+                  {detail.cash_payments?.length > 0 && (
+                    <div style={{marginTop:'0.75rem'}}>
+                      <p style={{fontSize:'0.8rem',fontWeight:600,marginBottom:'0.4rem',color:'var(--text-muted)'}}>Cash betalingen</p>
+                      <div style={{maxHeight:120,overflowY:'auto',display:'flex',flexDirection:'column',gap:2}}>
+                        {detail.cash_payments.map(cp => (
+                          <div key={cp.id} style={{display:'flex',justifyContent:'space-between',fontSize:'0.78rem',padding:'0.25rem 0',borderBottom:'1px solid var(--border)'}}>
+                            <span style={{color:'var(--text-muted)'}}>{cp.payment_date}</span>
+                            <span style={{color:'var(--text-2)'}}>{cp.payment_type} · {cp.note||'—'}</span>
+                            <span style={{fontWeight:600,color:'var(--success)'}}>€{cp.amount}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Boekingen */}
               {detail.bookings.length > 0 && (
@@ -985,6 +1154,469 @@ function BetalingOverview() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// INKOMEN DASHBOARD
+// ════════════════════════════════════════════════════════════════════
+function InkomenSection() {
+  const now = new Date()
+  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`)
+  const [data,  setData]  = useState(null)
+  const [loading,setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    api.get(`/cash/income?month=${month}`)
+      .then(r => { setData(r.data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [month])
+
+  if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+  if (!data)   return <p style={{color:'var(--error)'}}>Fout bij laden</p>
+
+  const { breakdown: bd, outstanding, expected_next_month: enm, fonds: f, cash_history } = data
+
+  const rows = [
+    { label:'💳 Mollie abonnementen', total:bd.mollie.total,          count:bd.mollie.count,          color:'#3b82f6' },
+    { label:'💵 Cash lidmaatschap',   total:bd.cash_membership.total,  count:bd.cash_membership.count,  color:'#22c55e' },
+    { label:'📆 Cash kwartaal',       total:bd.cash_quarter.total,     count:bd.cash_quarter.count,     color:'#a3e635' },
+    { label:'💪 Cash PT sessies',     total:bd.cash_pt.total,          count:bd.cash_pt.count,          color:'#f59e0b', extra: bd.cash_pt.sessions ? `${bd.cash_pt.sessions} sessies` : null },
+    { label:'🛍️ Winkel',             total:bd.shop.total,             count:bd.shop.count,             color:'#e879f9' },
+  ]
+
+  const months = []
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.5rem'}}>
+        <h2 style={{margin:0}}>Inkomen Dashboard</h2>
+        <select className="input" style={{width:'auto'}} value={month} onChange={e => setMonth(e.target.value)}>
+          {months.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </div>
+
+      {/* Totaal kaart */}
+      <div style={{background:'var(--surface-2)',borderRadius:'var(--r)',padding:'1.25rem',marginBottom:'1.25rem',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div>
+          <div style={{fontSize:'0.8rem',color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:1}}>Totale inkomsten {month}</div>
+          <div style={{fontSize:'2rem',fontWeight:900,color:'var(--accent)',marginTop:4}}>{fmtMoney(data.total)}</div>
+        </div>
+        <div style={{textAlign:'right'}}>
+          <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>Openstaand</div>
+          <div style={{fontWeight:800,color:'var(--error)',fontSize:'1.1rem'}}>{fmtMoney(outstanding.total)}</div>
+          <div style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>{outstanding.count} onbetaald</div>
+        </div>
+      </div>
+
+      {/* Uitsplitsing */}
+      <div className="card" style={{marginBottom:'1.25rem'}}>
+        <h3 style={{marginBottom:'1rem'}}>Uitsplitsing inkomsten</h3>
+        {rows.map(r => (
+          <div key={r.label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.45rem 0',borderBottom:'1px solid var(--border)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:'0.6rem'}}>
+              <div style={{width:10,height:10,borderRadius:'50%',background:r.color,flexShrink:0}}/>
+              <span style={{fontSize:'0.875rem'}}>{r.label}</span>
+              {r.extra && <span style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>({r.extra})</span>}
+            </div>
+            <div style={{textAlign:'right'}}>
+              <span style={{fontWeight:700}}>{fmtMoney(r.total)}</span>
+              {r.count > 0 && <span style={{marginLeft:8,fontSize:'0.75rem',color:'var(--text-muted)'}}>{r.count}×</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Verwacht volgende maand */}
+      <div className="card" style={{marginBottom:'1.25rem'}}>
+        <h3 style={{marginBottom:'0.75rem'}}>Verwacht volgende maand</h3>
+        <div style={{display:'flex',gap:'1rem',flexWrap:'wrap'}}>
+          {[
+            ['💳 Mollie', enm.mollie],
+            ['💵 Cash kwartaal', enm.cash, `${enm.cash_count} leden`],
+            ['📊 Totaal', enm.total],
+          ].map(([lbl, val, sub]) => (
+            <div key={lbl} style={{flex:1,minWidth:120,background:'var(--surface-2)',borderRadius:8,padding:'0.75rem'}}>
+              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{lbl}</div>
+              <div style={{fontWeight:800,fontSize:'1.15rem',color:'var(--success)',marginTop:2}}>{fmtMoney(val)}</div>
+              {sub && <div style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>{sub}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Fonds samenvatting */}
+      <div className="card" style={{marginBottom:'1.25rem'}}>
+        <h3 style={{marginBottom:'0.75rem'}}>Fonds leden</h3>
+        <div style={{display:'flex',gap:'1rem'}}>
+          <div style={{flex:1,background:'var(--surface-2)',borderRadius:8,padding:'0.75rem',textAlign:'center'}}>
+            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>Actief</div>
+            <div style={{fontWeight:800,fontSize:'1.5rem',color:'var(--success)'}}>{f.active}</div>
+          </div>
+          <div style={{flex:1,background:'var(--surface-2)',borderRadius:8,padding:'0.75rem',textAlign:'center'}}>
+            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>Verloopt &lt;30d</div>
+            <div style={{fontWeight:800,fontSize:'1.5rem',color:f.expiring>0?'var(--warning)':'var(--success)'}}>{f.expiring}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Cash historiek */}
+      {cash_history?.length > 0 && (
+        <div className="card">
+          <h3 style={{marginBottom:'0.75rem'}}>Cash historiek (6 maanden)</h3>
+          {cash_history.map(h => (
+            <div key={h.month} style={{display:'flex',justifyContent:'space-between',padding:'0.35rem 0',borderBottom:'1px solid var(--border)',fontSize:'0.875rem'}}>
+              <span style={{color:'var(--text-muted)'}}>{h.month}</span>
+              <span style={{fontWeight:600}}>{fmtMoney(h.cash_total)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CASH & FONDS SECTIE
+// ════════════════════════════════════════════════════════════════════
+function CashFondsSection() {
+  const [tab, setTab] = useState('kwartaal')
+
+  return (
+    <div>
+      <div className="tab-bar" style={{marginBottom:'1.5rem'}}>
+        {[['kwartaal','💵 Kwartaal'],['fonds','🏛️ Fonds leden'],['cashpt','💪 Cash PT']].map(([k,l]) => (
+          <button key={k} className={`tab-btn${tab===k?' active':''}`} onClick={() => setTab(k)}>{l}</button>
+        ))}
+      </div>
+      {tab === 'kwartaal' && <KwartaalTab/>}
+      {tab === 'fonds'    && <FondsTab/>}
+      {tab === 'cashpt'   && <CashPtTab/>}
+    </div>
+  )
+}
+
+function KwartaalTab() {
+  const [members, setMembers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({ user_id:'', amount:'', payment_date: new Date().toISOString().split('T')[0], note:'' })
+  const [allMembers, setAllMembers] = useState([])
+
+  const load = () => {
+    setLoading(true)
+    api.get('/cash/members').then(r => { setMembers(r.data.members||[]); setLoading(false) }).catch(() => setLoading(false))
+  }
+  useEffect(() => { load(); api.get('/admin/members').then(r => setAllMembers(r.data.members||[])).catch(() => {}) }, [])
+
+  const markPaid = async mem => {
+    const amount = prompt(`Bedrag ontvangen (€):`, mem.quarterly_amount||'150')
+    if (!amount) return
+    try {
+      const r = await api.put(`/cash/memberships/${mem.membership_id}/quarterly-paid`, { amount: parseFloat(amount), note: 'Cash ontvangen' })
+      alert(`✅ Volgende kwartaal: ${r.data.next_due}`)
+      load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const processReminders = async () => {
+    const r = await api.post('/cash/quarterly/process-reminders')
+    alert(`Kwartaalherinneringen: ${r.data.results.admin_14d} admin, ${r.data.results.member_7d} leden`)
+  }
+
+  if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+        <h2 style={{margin:0}}>Cash kwartaalbetalers</h2>
+        <button className="btn btn-ghost btn-sm" onClick={processReminders}><RefreshCw size={13}/> Verwerk herinneringen</button>
+      </div>
+
+      {members.length === 0 && (
+        <div style={{textAlign:'center',padding:'3rem',color:'var(--text-muted)'}}>
+          <p>Geen cash kwartaalbetalers</p>
+          <p style={{fontSize:'0.8rem'}}>Wijs een lidmaatschap toe via Leden → Betalingsmethode: Cash kwartaal</p>
+        </div>
+      )}
+
+      {members.map(m => {
+        const days = Math.round(Number(m.days_until_due)||99)
+        const urgent = days <= 7
+        const warning = days <= 14
+        const overdue = days < 0
+        return (
+          <div key={m.membership_id} className="card" style={{marginBottom:'0.75rem',borderColor:urgent?'var(--error)':warning?'var(--warning)':'var(--border)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div>
+                <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
+                  {m.first_name} {m.last_name}
+                  {overdue && <span className="badge-error" style={{fontSize:'0.7rem'}}>ACHTERSTALLIG</span>}
+                  {!overdue && urgent && <span className="badge-error" style={{fontSize:'0.7rem'}}>DEZE WEEK</span>}
+                  {!overdue && !urgent && warning && <span className="badge-warning" style={{fontSize:'0.7rem'}}>BINNENKORT</span>}
+                </div>
+                <div style={{fontSize:'0.82rem',color:'var(--text-muted)'}}>{m.email}</div>
+                <div style={{fontSize:'0.82rem',marginTop:4}}>
+                  {m.membership_name||m.membership_type_key} · €{m.quarterly_amount}/kwartaal
+                </div>
+              </div>
+              <div style={{textAlign:'right',flexShrink:0}}>
+                <div style={{fontWeight:800,fontSize:'1.1rem',color:overdue?'var(--error)':urgent?'var(--warning)':'var(--text-2)'}}>
+                  {m.next_quarter_due ? fmtDate(m.next_quarter_due) : '—'}
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>
+                  {overdue ? `${Math.abs(days)}d te laat` : `over ${days}d`}
+                </div>
+                {m.last_quarter_paid && <div style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>Laatste: {fmtDate(m.last_quarter_paid)}</div>}
+              </div>
+            </div>
+            <button className="btn btn-sm" style={{marginTop:'0.6rem',background:'var(--success-dim)',color:'var(--success)'}} onClick={() => markPaid(m)}>
+              <Check size={13}/> Betaling ontvangen
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function FondsTab() {
+  const [members, setMembers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showNew, setShowNew] = useState(false)
+  const [form,    setForm]    = useState({ user_id:'', fonds_type:'jeugdfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', amount_covered:'', notes:'' })
+  const [allMembers, setAllMembers] = useState([])
+
+  const load = () => {
+    setLoading(true)
+    api.get('/cash/fonds').then(r => { setMembers(r.data.members||[]); setLoading(false) }).catch(() => setLoading(false))
+  }
+  useEffect(() => {
+    load()
+    api.get('/admin/members').then(r => setAllMembers(r.data.members||[])).catch(() => {})
+  }, [])
+
+  const processReminders = async () => {
+    const r = await api.post('/cash/fonds/process-reminders')
+    alert(`Fonds herinneringen: 30d=${r.data.results.month1}, 14d=${r.data.results.weeks2}, 7d=${r.data.results.week1}, gepauzeerd=${r.data.results.auto_paused}`)
+  }
+
+  const createFonds = async () => {
+    if (!form.user_id || !form.end_date) return alert('Selecteer een lid en einddatum')
+    try {
+      await api.post('/cash/fonds', { ...form, amount_covered: parseFloat(form.amount_covered)||null })
+      setShowNew(false); setForm({ user_id:'', fonds_type:'jeugdfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', amount_covered:'', notes:'' }); load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const renewFonds = async fonds => {
+    const newEnd = prompt('Nieuwe einddatum (YYYY-MM-DD):', fonds.end_date)
+    if (!newEnd) return
+    try {
+      await api.put(`/cash/fonds/${fonds.id}`, { end_date: newEnd, status: 'active' })
+      load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const statusForDays = (days) => {
+    if (days < 0)   return { label: 'VERLOPEN', color: '#6b7280' }
+    if (days <= 7)  return { label: `${Math.round(days)}d ⚠️ URGENT`, color: 'var(--error)' }
+    if (days <= 14) return { label: `${Math.round(days)}d ⚠️`, color: 'var(--warning)' }
+    if (days <= 30) return { label: `${Math.round(days)}d ⚠`, color: '#f59e0b' }
+    return { label: `${Math.round(days)}d`, color: 'var(--success)' }
+  }
+
+  if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
+        <h2 style={{margin:0}}>Fonds leden</h2>
+        <div style={{display:'flex',gap:'0.5rem'}}>
+          <button className="btn btn-ghost btn-sm" onClick={processReminders}><RefreshCw size={13}/> Verwerk herinneringen</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowNew(s=>!s)}>{showNew?<X size={13}/>:<Plus size={13}/>} Nieuw fonds</button>
+        </div>
+      </div>
+
+      {showNew && (
+        <div className="card" style={{marginBottom:'1rem'}}>
+          <h3 style={{marginBottom:'0.75rem'}}>Fonds lid toevoegen</h3>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
+            <div style={{gridColumn:'span 2'}}>
+              <label className="input-label">Lid</label>
+              <select className="input" value={form.user_id} onChange={e => setForm({...form,user_id:e.target.value})}>
+                <option value="">— Selecteer lid —</option>
+                {allMembers.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name} ({m.email})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="input-label">Fonds type</label>
+              <select className="input" value={form.fonds_type} onChange={e => setForm({...form,fonds_type:e.target.value})}>
+                <option value="jeugdfonds">Jeugdfonds</option>
+                <option value="volwassenenfonds">Volwassenenfonds</option>
+                <option value="overig">Overig</option>
+              </select>
+            </div>
+            <div>
+              <label className="input-label">Fonds naam</label>
+              <input className="input" placeholder="Optioneel" value={form.fonds_name} onChange={e => setForm({...form,fonds_name:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Startdatum</label>
+              <input className="input" type="date" value={form.start_date} onChange={e => setForm({...form,start_date:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Einddatum</label>
+              <input className="input" type="date" value={form.end_date} onChange={e => setForm({...form,end_date:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Bedrag gedekt (€)</label>
+              <input className="input" type="number" value={form.amount_covered} onChange={e => setForm({...form,amount_covered:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Notities</label>
+              <input className="input" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}/>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
+            <button className="btn btn-primary btn-sm" onClick={createFonds}><Check size={13}/> Aanmaken</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowNew(false)}><X size={13}/> Annuleren</button>
+          </div>
+        </div>
+      )}
+
+      {members.length === 0 && !showNew && (
+        <div style={{textAlign:'center',padding:'3rem',color:'var(--text-muted)'}}>
+          <p>Geen fonds leden</p>
+        </div>
+      )}
+
+      {members.map(m => {
+        const days = Number(m.days_remaining || 0)
+        const { label, color } = statusForDays(days)
+        return (
+          <div key={m.id} className="card" style={{marginBottom:'0.6rem',borderColor:days<7?'var(--error)':days<14?'var(--warning)':'var(--border)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div>
+                <div style={{fontWeight:700}}>{m.first_name} {m.last_name}</div>
+                <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>{m.email}</div>
+                <div style={{fontSize:'0.82rem',marginTop:3}}>
+                  🏛️ {m.fonds_name||m.fonds_type}
+                  {m.amount_covered ? <span style={{marginLeft:8,color:'var(--text-muted)'}}>€{m.amount_covered}</span> : null}
+                </div>
+                <div style={{fontSize:'0.78rem',marginTop:2,color:'var(--text-muted)'}}>
+                  {fmtDate(m.start_date)} → {fmtDate(m.end_date)}
+                </div>
+              </div>
+              <div style={{textAlign:'right',flexShrink:0}}>
+                <div style={{fontWeight:800,color,fontSize:'0.9rem'}}>{label}</div>
+                <div style={{fontSize:'0.75rem',color:'var(--text-muted)',marginTop:2}}>{m.status}</div>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:'0.5rem',marginTop:'0.6rem',flexWrap:'wrap'}}>
+              <button className="btn btn-outline btn-sm" onClick={() => renewFonds(m)}><Plus size={13}/> Verlengen</button>
+              {m.status !== 'expired' && (
+                <button className="btn btn-ghost btn-sm" onClick={async () => {
+                  await api.put(`/cash/fonds/${m.id}`, { status: 'expired' }); load()
+                }}><X size={13}/> Markeer verlopen</button>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CashPtTab() {
+  const [members, setMembers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(null)  // user_id
+  const [addForm, setAddForm] = useState({ amount:'', sessions_paid:'', payment_date: new Date().toISOString().split('T')[0], note:'' })
+
+  const load = () => {
+    setLoading(true)
+    api.get('/cash/pt-overview').then(r => { setMembers(r.data.members||[]); setLoading(false) }).catch(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const logPayment = async (userId) => {
+    try {
+      await api.post('/cash/payments', {
+        user_id: userId,
+        amount: parseFloat(addForm.amount),
+        payment_date: addForm.payment_date,
+        payment_type: 'pt',
+        sessions_paid: parseInt(addForm.sessions_paid)||null,
+        note: addForm.note,
+      })
+      setShowAdd(null); setAddForm({ amount:'', sessions_paid:'', payment_date: new Date().toISOString().split('T')[0], note:'' }); load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+
+  const totalCashPt = members.reduce((s, m) => s + Number(m.total_cash_income||0), 0)
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+        <h2 style={{margin:0}}>Cash PT Overzicht</h2>
+        <div style={{fontWeight:700,color:'var(--success)'}}>Totaal: {fmtMoney(totalCashPt)}</div>
+      </div>
+
+      {members.length === 0 && (
+        <p style={{color:'var(--text-muted)',textAlign:'center'}}>Geen cash PT betalingen</p>
+      )}
+
+      {members.map(m => {
+        const low = Number(m.sessions_remaining) <= 2
+        return (
+          <div key={m.id} className="card" style={{marginBottom:'0.6rem',borderColor:low?'var(--warning)':'var(--border)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'0.5rem'}}>
+              <div>
+                <div style={{fontWeight:700}}>{m.first_name} {m.last_name}</div>
+                <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>{m.email}</div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontWeight:800,fontSize:'1.1rem',color:low?'var(--warning)':'var(--success)'}}>
+                  {m.sessions_remaining} sessies over
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>
+                  {m.sessions_used}/{m.total_sessions_paid} gebruikt
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>
+                  Cash: {fmtMoney(m.total_cash_income)}
+                </div>
+              </div>
+            </div>
+            {low && <div style={{background:'rgba(245,158,11,0.1)',borderRadius:6,padding:'0.4rem 0.6rem',fontSize:'0.8rem',color:'var(--warning)',marginBottom:'0.5rem'}}>⚠️ Nog maar {m.sessions_remaining} sessie(s) resterend!</div>}
+
+            {showAdd === m.id ? (
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem',padding:'0.6rem',background:'var(--surface-2)',borderRadius:8}}>
+                <div><label className="input-label">Datum</label><input className="input" type="date" value={addForm.payment_date} onChange={e => setAddForm({...addForm,payment_date:e.target.value})}/></div>
+                <div><label className="input-label">Bedrag (€)</label><input className="input" type="number" value={addForm.amount} onChange={e => setAddForm({...addForm,amount:e.target.value})} placeholder="70"/></div>
+                <div><label className="input-label">Sessies betaald</label><input className="input" type="number" value={addForm.sessions_paid} onChange={e => setAddForm({...addForm,sessions_paid:e.target.value})} placeholder="1"/></div>
+                <div><label className="input-label">Notitie</label><input className="input" value={addForm.note} onChange={e => setAddForm({...addForm,note:e.target.value})}/></div>
+                <div style={{gridColumn:'span 2',display:'flex',gap:'0.4rem'}}>
+                  <button className="btn btn-primary btn-sm" onClick={() => logPayment(m.id)}><Check size={13}/> Opslaan</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowAdd(null)}><X size={13}/> Annuleren</button>
+                </div>
+              </div>
+            ) : (
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowAdd(m.id)}>
+                <Plus size={13}/> Cash PT betaling loggen
+              </button>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
 // HOOFD COMPONENT
 // ════════════════════════════════════════════════════════════════════
 const MENU = [
@@ -1016,6 +1648,8 @@ export default function AdminPage() {
         {section==='leden'      && <LedenSection/>}
         {section==='pt'         && <PTAgendaSection/>}
         {section==='vt'         && <VTAgendaSection/>}
+        {section==='cashfonds'  && <CashFondsSection/>}
+        {section==='inkomen'    && <InkomenSection/>}
         {section==='betalingen' && <BetalingenSection/>}
         {section==='community'  && <CommunityBeheer/>}
         {section==='rooster'    && <RoosterSection/>}
