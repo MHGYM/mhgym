@@ -29,14 +29,15 @@ const logCashPayment = async (req, res) => {
   if (payment_type === 'pt' && sessions_paid) {
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    const pricePerSession = sessions_paid > 0 ? Number(amount) / Number(sessions_paid) : 0;
     await db.execute({
-      sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, status, expires_at)
-            VALUES (?, 'cash_pt', ?, ?, 0, 'paid', ?)`,
-      args: [user_id, sessions_paid, sessions_paid, expiresAt.toISOString().split('T')[0]],
+      sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, amount, status, expires_at)
+            VALUES (?, 'cash_pt', ?, ?, 0, ?, 'paid', ?)`,
+      args: [user_id, sessions_paid, sessions_paid, Number(amount), expiresAt.toISOString().split('T')[0]],
     });
   }
 
-  res.status(201).json({ id: result.lastInsertRowid, message: 'Cash betaling geregistreerd.' });
+  res.status(201).json({ id: Number(result.lastInsertRowid), message: 'Cash betaling geregistreerd.' });
 };
 
 /** Overzicht van cash betalingen (filter op user_id of maand) */
@@ -125,7 +126,7 @@ const createFondsMembership = async (req, res) => {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [user_id, fonds_type, fonds_name || fonds_type, start_date, end_date, amount_covered || null, notes || null, req.user.id],
   });
-  const fondsId = result.lastInsertRowid;
+  const fondsId = Number(result.lastInsertRowid);
 
   // Koppel aan actief lidmaatschap
   await db.execute({

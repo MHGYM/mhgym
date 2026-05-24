@@ -4,6 +4,10 @@ const helmet  = require('helmet');
 const cors    = require('cors');
 const morgan  = require('morgan');
 
+// libSQL returns BigInt for lastInsertRowid — make it JSON-safe globally
+// eslint-disable-next-line no-extend-native
+BigInt.prototype.toJSON = function () { return Number(this); };
+
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
