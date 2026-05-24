@@ -1,261 +1,399 @@
 const db = require('../config/database');
+const { sendPush } = require('./ptController');
+const { sendEmail } = require('../services/emailService');
+
+// ── Lidmaatschapstypes (constanten) ────────────────────────────────────────
+const MEMBERSHIP_TYPES = [
+  // Groepslessen
+  { key: 'jeugd_jaar',               label: 'Jeugd Jaar',               category: 'groepslessen', price_monthly: 45,  duration_months: 12, minimum_months: 12 },
+  { key: 'jeugd_half_jaar',          label: 'Jeugd Half jaar',          category: 'groepslessen', price_monthly: 50,  duration_months: 6,  minimum_months: 6  },
+  { key: 'jeugd_maand',              label: 'Jeugd Maand',              category: 'groepslessen', price_monthly: 55,  duration_months: 1,  minimum_months: 1  },
+  { key: 'volwassenen_jaar',         label: 'Volwassenen Jaar',         category: 'groepslessen', price_monthly: 55,  duration_months: 12, minimum_months: 12 },
+  { key: 'volwassenen_half_jaar',    label: 'Volwassenen Half jaar',    category: 'groepslessen', price_monthly: 60,  duration_months: 6,  minimum_months: 6  },
+  { key: 'volwassenen_maand',        label: 'Volwassenen Maand',        category: 'groepslessen', price_monthly: 65,  duration_months: 1,  minimum_months: 1  },
+  // Vrij trainen
+  { key: 'vt_onbeperkt',             label: 'Vrij Trainen Onbeperkt',   category: 'vrij_trainen', price_monthly: null, custom_price: true },
+  { key: 'vt_10x',                   label: 'Vrij Trainen 10x kaart',   category: 'vrij_trainen', price_monthly: null, custom_price: true },
+  { key: 'vt_dagpas',                label: 'Vrij Trainen Dagpas',      category: 'vrij_trainen', price_monthly: null, custom_price: true },
+  // Personal Training
+  { key: 'pt_losse_les',             label: 'PT Losse les',             category: 'pt',           price_monthly: null, price_per_lesson: 70,  lessons: 1  },
+  { key: 'pt_10_lessen',             label: 'PT 10 lessen',             category: 'pt',           price_monthly: null, price_per_lesson: 60,  lessons: 10 },
+  { key: 'pt_20_lessen',             label: 'PT 20 lessen',             category: 'pt',           price_monthly: null, price_per_lesson: 58,  lessons: 20 },
+  { key: 'pt_30_lessen',             label: 'PT 30 lessen',             category: 'pt',           price_monthly: null, price_per_lesson: 56,  lessons: 30 },
+  { key: 'pt_40_lessen',             label: 'PT 40 lessen',             category: 'pt',           price_monthly: null, price_per_lesson: 54,  lessons: 40 },
+  { key: 'pt_50_lessen',             label: 'PT 50 lessen',             category: 'pt',           price_monthly: null, price_per_lesson: 52,  lessons: 50 },
+  { key: 'pt_abo_1x',                label: 'PT Abonnement 1x/week',    category: 'pt_abo',       price_monthly: 240,  price_per_lesson: 60,  minimum_months: 6  },
+  { key: 'pt_abo_2x',                label: 'PT Abonnement 2x/week',    category: 'pt_abo',       price_monthly: 440,  price_per_lesson: 55,  minimum_months: 6  },
+  { key: 'pt_abo_3x',                label: 'PT Abonnement 3x/week',    category: 'pt_abo',       price_monthly: 600,  price_per_lesson: 50,  minimum_months: 6  },
+];
 
 // ── Leden ──────────────────────────────────────────────────────────────────
 
-// GET /api/admin/members
 const listMembers = async (req, res) => {
-  const result = await db.execute(`
+  const { q } = req.query;
+  let sql = `
     SELECT
-      u.id, u.email, u.first_name, u.last_name, u.phone, u.role, u.created_at,
-      um.status AS membership_status,
-      um.start_date, um.end_date,
-      m.name AS membership_name, m.category AS membership_category,
-      m.price_monthly,
-      (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id AND b.status = 'confirmed') AS total_bookings
+      u.id, u.email, u.first_name, u.last_name, u.phone, u.role,
+      u.is_cash_payer, u.admin_notes, u.membership_paused, u.created_at,
+      um.id AS user_membership_id, um.status AS membership_status,
+      um.start_date, um.end_date, um.is_cash, um.cash_paid, um.admin_price, um.membership_type_key,
+      m.name AS membership_name, m.category AS membership_category, m.price_monthly,
+      (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id AND b.status = 'confirmed') AS total_bookings,
+      (SELECT COUNT(*) FROM pt_bookings pb WHERE pb.user_id = u.id AND pb.status IN ('confirmed','completed')) AS total_pt,
+      (SELECT SUM(pp.lessons_remaining) FROM pt_purchases pp WHERE pp.user_id = u.id AND pp.status = 'paid' AND pp.lessons_remaining > 0) AS pt_lessons_remaining
     FROM users u
-    LEFT JOIN user_memberships um ON um.user_id = u.id AND um.status = 'active'
+    LEFT JOIN user_memberships um ON um.user_id = u.id AND um.status IN ('active','cancelling')
     LEFT JOIN memberships m ON m.id = um.membership_id
-    ORDER BY u.created_at DESC
-  `);
-  res.json({ members: result.rows });
+  `;
+  const args = [];
+  if (q) {
+    sql += ` WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)`;
+    const like = `%${q}%`;
+    args.push(like, like, like);
+  }
+  sql += ' ORDER BY u.created_at DESC';
+
+  const result = await db.execute({ sql, args });
+  res.json({ members: result.rows, membership_types: MEMBERSHIP_TYPES });
 };
 
-// GET /api/admin/members/:id
 const getMember = async (req, res) => {
   const userRes = await db.execute({
-    sql: `SELECT u.id, u.email, u.first_name, u.last_name, u.phone, u.role, u.created_at
-          FROM users u WHERE u.id = ?`,
+    sql: `SELECT u.*, '' AS password_hash FROM users u WHERE u.id = ?`,
     args: [req.params.id],
   });
   if (!userRes.rows[0]) return res.status(404).json({ error: 'Lid niet gevonden.' });
 
-  const membershipRes = await db.execute({
-    sql: `SELECT um.*, m.name AS membership_name, m.category, m.price_monthly
-          FROM user_memberships um
-          JOIN memberships m ON m.id = um.membership_id
-          WHERE um.user_id = ?
-          ORDER BY um.created_at DESC`,
-    args: [req.params.id],
-  });
+  const [membershipRes, bookingRes, paymentRes, ptRes, vtRes] = await Promise.all([
+    db.execute({
+      sql: `SELECT um.*, m.name AS membership_name, m.category FROM user_memberships um LEFT JOIN memberships m ON m.id = um.membership_id WHERE um.user_id = ? ORDER BY um.created_at DESC`,
+      args: [req.params.id],
+    }),
+    db.execute({
+      sql: `SELECT b.*, c.name AS class_name, c.date_time, c.category FROM bookings b JOIN classes c ON c.id = b.class_id WHERE b.user_id = ? ORDER BY c.date_time DESC LIMIT 20`,
+      args: [req.params.id],
+    }),
+    db.execute({
+      sql: `SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`,
+      args: [req.params.id],
+    }),
+    db.execute({
+      sql: `SELECT pb.*, ps.date_time, ps.trainer FROM pt_bookings pb JOIN pt_slots ps ON ps.id = pb.slot_id WHERE pb.user_id = ? ORDER BY ps.date_time DESC LIMIT 20`,
+      args: [req.params.id],
+    }),
+    db.execute({
+      sql: `SELECT * FROM vrij_trainen_bookings WHERE user_id = ? ORDER BY date DESC LIMIT 20`,
+      args: [req.params.id],
+    }),
+  ]);
 
-  const bookingRes = await db.execute({
-    sql: `SELECT b.*, c.name AS class_name, c.date_time, c.category
-          FROM bookings b JOIN classes c ON c.id = b.class_id
-          WHERE b.user_id = ?
-          ORDER BY c.date_time DESC
-          LIMIT 20`,
-    args: [req.params.id],
-  });
-
-  const paymentRes = await db.execute({
-    sql: `SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`,
-    args: [req.params.id],
-  });
+  const member = { ...userRes.rows[0] };
+  delete member.password_hash;
 
   res.json({
-    member: userRes.rows[0],
-    memberships: membershipRes.rows,
-    bookings: bookingRes.rows,
-    payments: paymentRes.rows,
+    member,
+    memberships:  membershipRes.rows,
+    bookings:     bookingRes.rows,
+    payments:     paymentRes.rows,
+    pt_sessions:  ptRes.rows,
+    vt_bookings:  vtRes.rows,
+    membership_types: MEMBERSHIP_TYPES,
   });
 };
 
-// PUT /api/admin/members/:id/role  — maak lid admin of terug
 const setMemberRole = async (req, res) => {
   const { role } = req.body;
   if (!['member', 'admin'].includes(role)) return res.status(400).json({ error: 'Ongeldige rol.' });
-
-  await db.execute({
-    sql: `UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`,
-    args: [role, req.params.id],
-  });
+  await db.execute({ sql: `UPDATE users SET role = ?, updated_at = datetime('now') WHERE id = ?`, args: [role, req.params.id] });
   res.json({ message: `Rol bijgewerkt naar ${role}.` });
 };
 
-// DELETE /api/admin/members/:id  — verwijder lid (cascade)
+const updateMemberNotes = async (req, res) => {
+  const { admin_notes, is_cash_payer } = req.body;
+  await db.execute({
+    sql: `UPDATE users SET admin_notes = COALESCE(?, admin_notes), is_cash_payer = COALESCE(?, is_cash_payer), updated_at = datetime('now') WHERE id = ?`,
+    args: [admin_notes ?? null, is_cash_payer != null ? (is_cash_payer ? 1 : 0) : null, req.params.id],
+  });
+  res.json({ message: 'Bijgewerkt.' });
+};
+
+const pauseMembership = async (req, res) => {
+  const { paused, reason } = req.body;
+  await db.execute({
+    sql: `UPDATE users SET membership_paused = ?, membership_paused_reason = ?, updated_at = datetime('now') WHERE id = ?`,
+    args: [paused ? 1 : 0, reason || null, req.params.id],
+  });
+  res.json({ message: paused ? 'Lidmaatschap gepauzeerd.' : 'Lidmaatschap hervat.' });
+};
+
+// Admin wijst handmatig lidmaatschap toe (voor cash-betalers)
+const assignMembership = async (req, res) => {
+  const { membership_type_key, admin_price, start_date, is_cash, cash_paid, notes } = req.body;
+  if (!membership_type_key) return res.status(400).json({ error: 'membership_type_key is verplicht.' });
+
+  const mtype = MEMBERSHIP_TYPES.find((t) => t.key === membership_type_key);
+  if (!mtype) return res.status(404).json({ error: 'Onbekend lidmaatschapstype.' });
+
+  // Deactiveer bestaand actief lidmaatschap
+  await db.execute({
+    sql: `UPDATE user_memberships SET status = 'cancelled', updated_at = datetime('now') WHERE user_id = ? AND status IN ('active','cancelling')`,
+    args: [req.params.id],
+  });
+
+  const startDate   = start_date || new Date().toISOString().split('T')[0];
+  const endDate     = mtype.duration_months ? (() => {
+    const d = new Date(startDate);
+    d.setMonth(d.getMonth() + mtype.duration_months);
+    return d.toISOString().split('T')[0];
+  })() : null;
+
+  // Zoek of maak een membership record
+  let membershipId = null;
+  const existingM = await db.execute({
+    sql: `SELECT id FROM memberships WHERE name = ?`,
+    args: [mtype.label],
+  });
+  if (existingM.rows[0]) {
+    membershipId = existingM.rows[0].id;
+  } else {
+    const ins = await db.execute({
+      sql: `INSERT INTO memberships (name, category, price_monthly, duration_months, minimum_months, features, notice_period_months)
+            VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      args: [mtype.label, mtype.category, mtype.price_monthly || admin_price || 0, mtype.duration_months || 1, mtype.minimum_months || 1, '[]'],
+    });
+    membershipId = ins.lastInsertRowid;
+  }
+
+  const result = await db.execute({
+    sql: `INSERT INTO user_memberships (user_id, membership_id, status, start_date, end_date, is_cash, cash_paid, admin_price, membership_type_key)
+          VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+    args: [req.params.id, membershipId, startDate, endDate, is_cash ? 1 : 0, cash_paid ? 1 : 0, admin_price || null, membership_type_key],
+  });
+
+  // Als het PT lessen zijn, maak ook een pt_purchase aan
+  if (mtype.category === 'pt' && mtype.lessons) {
+    const expiresAt = new Date();
+    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    await db.execute({
+      sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, status, expires_at)
+            VALUES (?, ?, ?, ?, 0, 'paid', ?)`,
+      args: [req.params.id, mtype.key, mtype.lessons, mtype.lessons, expiresAt.toISOString().split('T')[0]],
+    });
+  }
+
+  // Is cash betaler markeren
+  if (is_cash) {
+    await db.execute({
+      sql: `UPDATE users SET is_cash_payer = 1, updated_at = datetime('now') WHERE id = ?`,
+      args: [req.params.id],
+    });
+  }
+
+  if (notes) {
+    await db.execute({
+      sql: `UPDATE users SET admin_notes = ?, updated_at = datetime('now') WHERE id = ?`,
+      args: [notes, req.params.id],
+    });
+  }
+
+  res.status(201).json({ message: `Lidmaatschap "${mtype.label}" toegewezen.` });
+};
+
+const markCashPaid = async (req, res) => {
+  await db.execute({
+    sql: `UPDATE user_memberships SET cash_paid = 1, updated_at = datetime('now') WHERE id = ? AND is_cash = 1`,
+    args: [req.params.mid],
+  });
+  res.json({ message: 'Betaling gemarkeerd als ontvangen.' });
+};
+
+// Admin voegt handmatig PT lessen toe
+const addPtLessons = async (req, res) => {
+  const { lessons, notes } = req.body;
+  if (!lessons || lessons < 1) return res.status(400).json({ error: 'Geef een geldig aantal lessen op.' });
+
+  const expiresAt = new Date();
+  expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+  await db.execute({
+    sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, status, expires_at)
+          VALUES (?, 'admin_manual', ?, ?, 0, 'paid', ?)`,
+    args: [req.params.id, lessons, lessons, expiresAt.toISOString().split('T')[0]],
+  });
+  if (notes) {
+    await db.execute({
+      sql: `UPDATE users SET admin_notes = COALESCE(admin_notes, '') || '\n[PT +' || ? || ' lessen] ' || ? WHERE id = ?`,
+      args: [lessons, notes, req.params.id],
+    });
+  }
+  res.json({ message: `${lessons} PT lessen toegevoegd.` });
+};
+
 const deleteMember = async (req, res) => {
   const existing = await db.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [req.params.id] });
   if (!existing.rows[0]) return res.status(404).json({ error: 'Lid niet gevonden.' });
-  if (existing.rows[0].id === req.user.id) return res.status(400).json({ error: 'Je kunt jezelf niet verwijderen.' });
-
+  if (String(existing.rows[0].id) === String(req.user.id)) return res.status(400).json({ error: 'Je kunt jezelf niet verwijderen.' });
   await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [req.params.id] });
   res.json({ message: 'Lid verwijderd.' });
 };
 
-// ── Lessen (admin beheer) ──────────────────────────────────────────────────
+// ── Lessen ──────────────────────────────────────────────────────────────────
 
-// GET /api/admin/classes
 const adminListClasses = async (req, res) => {
   const result = await db.execute(`
     SELECT c.*, (c.max_capacity - c.current_bookings) AS spots_left,
            (SELECT COUNT(*) FROM bookings b WHERE b.class_id = c.id AND b.status = 'confirmed') AS confirmed_bookings
-    FROM classes c
-    ORDER BY c.date_time DESC
-    LIMIT 200
+    FROM classes c ORDER BY c.date_time DESC LIMIT 200
   `);
   res.json({ classes: result.rows });
 };
 
-// POST /api/admin/classes
 const adminCreateClass = async (req, res) => {
   const { name, description, instructor, category, date_time, duration_minutes, max_capacity, location } = req.body;
-  if (!name || !instructor || !category || !date_time) {
-    return res.status(400).json({ error: 'Naam, instructeur, categorie en datum zijn verplicht.' });
-  }
-
+  if (!name || !instructor || !category || !date_time) return res.status(400).json({ error: 'Naam, instructeur, categorie en datum zijn verplicht.' });
   const result = await db.execute({
-    sql: `INSERT INTO classes (name, description, instructor, category, date_time, duration_minutes, max_capacity, location)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO classes (name, description, instructor, category, date_time, duration_minutes, max_capacity, location) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [name, description || null, instructor, category, date_time, duration_minutes || 60, max_capacity || 20, location || 'Zaal A'],
   });
   const cls = await db.execute({ sql: 'SELECT * FROM classes WHERE id = ?', args: [result.lastInsertRowid] });
   res.status(201).json({ class: cls.rows[0] });
 };
 
-// PUT /api/admin/classes/:id
 const adminUpdateClass = async (req, res) => {
   const { name, description, instructor, category, date_time, duration_minutes, max_capacity, location, status } = req.body;
-
   const existing = await db.execute({ sql: 'SELECT id FROM classes WHERE id = ?', args: [req.params.id] });
   if (!existing.rows[0]) return res.status(404).json({ error: 'Les niet gevonden.' });
-
   await db.execute({
-    sql: `UPDATE classes SET
-            name = COALESCE(?, name),
-            description = COALESCE(?, description),
-            instructor = COALESCE(?, instructor),
-            category = COALESCE(?, category),
-            date_time = COALESCE(?, date_time),
-            duration_minutes = COALESCE(?, duration_minutes),
-            max_capacity = COALESCE(?, max_capacity),
-            location = COALESCE(?, location),
-            status = COALESCE(?, status),
-            updated_at = datetime('now')
-          WHERE id = ?`,
-    args: [name ?? null, description ?? null, instructor ?? null, category ?? null, date_time ?? null,
-           duration_minutes ?? null, max_capacity ?? null, location ?? null, status ?? null, req.params.id],
+    sql: `UPDATE classes SET name=COALESCE(?,name), description=COALESCE(?,description), instructor=COALESCE(?,instructor),
+          category=COALESCE(?,category), date_time=COALESCE(?,date_time), duration_minutes=COALESCE(?,duration_minutes),
+          max_capacity=COALESCE(?,max_capacity), location=COALESCE(?,location), status=COALESCE(?,status), updated_at=datetime('now') WHERE id=?`,
+    args: [name??null,description??null,instructor??null,category??null,date_time??null,duration_minutes??null,max_capacity??null,location??null,status??null,req.params.id],
   });
-
   const updated = await db.execute({ sql: 'SELECT * FROM classes WHERE id = ?', args: [req.params.id] });
   res.json({ class: updated.rows[0] });
 };
 
-// DELETE /api/admin/classes/:id  — zet status op cancelled
 const adminCancelClass = async (req, res) => {
-  await db.execute({
-    sql: `UPDATE classes SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`,
-    args: [req.params.id],
-  });
+  await db.execute({ sql: `UPDATE classes SET status='cancelled', updated_at=datetime('now') WHERE id=?`, args: [req.params.id] });
   res.json({ message: 'Les geannuleerd.' });
 };
 
 // ── Boekingen ──────────────────────────────────────────────────────────────
 
-// GET /api/admin/bookings
 const adminListBookings = async (req, res) => {
   const result = await db.execute(`
-    SELECT b.*, u.first_name, u.last_name, u.email,
-           c.name AS class_name, c.date_time, c.category, c.instructor
-    FROM bookings b
-    JOIN users u ON u.id = b.user_id
-    JOIN classes c ON c.id = b.class_id
-    ORDER BY b.booked_at DESC
-    LIMIT 500
+    SELECT b.*, u.first_name, u.last_name, u.email, c.name AS class_name, c.date_time, c.category, c.instructor
+    FROM bookings b JOIN users u ON u.id = b.user_id JOIN classes c ON c.id = b.class_id
+    ORDER BY b.booked_at DESC LIMIT 500
   `);
   res.json({ bookings: result.rows });
 };
 
 // ── Betalingen & Statistieken ──────────────────────────────────────────────
 
-// GET /api/admin/payments
 const adminListPayments = async (req, res) => {
   const result = await db.execute(`
-    SELECT p.*, u.first_name, u.last_name, u.email,
-           m.name AS membership_name, m.category AS membership_category
-    FROM payments p
-    JOIN users u ON u.id = p.user_id
-    LEFT JOIN memberships m ON m.id = p.membership_id
+    SELECT p.*, u.first_name, u.last_name, u.email, m.name AS membership_name, m.category AS membership_category
+    FROM payments p JOIN users u ON u.id = p.user_id LEFT JOIN memberships m ON m.id = p.membership_id
     ORDER BY p.created_at DESC
   `);
   res.json({ payments: result.rows });
 };
 
-// GET /api/admin/stats  — dashboard statistieken
 const getStats = async (req, res) => {
-  const [
-    memberCount,
-    activeMembers,
-    totalRevenue,
-    monthRevenue,
-    classCount,
-    bookingCount,
-    orderCount,
-    productCount,
-  ] = await Promise.all([
-    db.execute(`SELECT COUNT(*) as n FROM users WHERE role = 'member'`),
-    db.execute(`SELECT COUNT(*) as n FROM user_memberships WHERE status = 'active'`),
-    db.execute(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'paid'`),
-    db.execute(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'paid' AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')`),
-    db.execute(`SELECT COUNT(*) as n FROM classes WHERE status = 'scheduled' AND date_time >= datetime('now')`),
-    db.execute(`SELECT COUNT(*) as n FROM bookings WHERE status = 'confirmed'`),
-    db.execute(`SELECT COUNT(*) as n FROM orders WHERE status = 'paid'`),
-    db.execute(`SELECT COUNT(*) as n FROM products WHERE active = 1`),
+  const [memberCount, activeMembers, totalRevenue, monthRevenue, classCount, bookingCount, orderCount, productCount] = await Promise.all([
+    db.execute(`SELECT COUNT(*) as n FROM users WHERE role='member'`),
+    db.execute(`SELECT COUNT(*) as n FROM user_memberships WHERE status='active'`),
+    db.execute(`SELECT COALESCE(SUM(amount),0) as total FROM payments WHERE status='paid'`),
+    db.execute(`SELECT COALESCE(SUM(amount),0) as total FROM payments WHERE status='paid' AND strftime('%Y-%m',created_at)=strftime('%Y-%m','now')`),
+    db.execute(`SELECT COUNT(*) as n FROM classes WHERE status='scheduled' AND date_time>=datetime('now')`),
+    db.execute(`SELECT COUNT(*) as n FROM bookings WHERE status='confirmed'`),
+    db.execute(`SELECT COUNT(*) as n FROM orders WHERE status='paid'`),
+    db.execute(`SELECT COUNT(*) as n FROM products WHERE active=1`),
   ]);
-
-  // Omzet per maand (laatste 6 maanden)
-  const revenueByMonth = await db.execute(`
-    SELECT strftime('%Y-%m', created_at) as month,
-           SUM(amount) as revenue,
-           COUNT(*) as count
-    FROM payments
-    WHERE status = 'paid'
-      AND created_at >= datetime('now', '-6 months')
-    GROUP BY month
-    ORDER BY month DESC
-  `);
-
-  // Actieve abonnementen per type
-  const membershipBreakdown = await db.execute(`
-    SELECT m.name, m.category, COUNT(*) as count
-    FROM user_memberships um
-    JOIN memberships m ON m.id = um.membership_id
-    WHERE um.status = 'active'
-    GROUP BY m.id
-    ORDER BY count DESC
-  `);
-
-  // Populairste lessen
-  const topClasses = await db.execute(`
-    SELECT c.name, c.category, c.instructor, COUNT(b.id) as bookings
-    FROM classes c
-    LEFT JOIN bookings b ON b.class_id = c.id AND b.status = 'confirmed'
-    WHERE c.date_time >= datetime('now', '-30 days')
-    GROUP BY c.name, c.category, c.instructor
-    ORDER BY bookings DESC
-    LIMIT 5
-  `);
-
+  const revenueByMonth = await db.execute(`SELECT strftime('%Y-%m',created_at) as month, SUM(amount) as revenue, COUNT(*) as count FROM payments WHERE status='paid' AND created_at>=datetime('now','-6 months') GROUP BY month ORDER BY month DESC`);
+  const membershipBreakdown = await db.execute(`SELECT m.name, m.category, COUNT(*) as count FROM user_memberships um JOIN memberships m ON m.id=um.membership_id WHERE um.status='active' GROUP BY m.id ORDER BY count DESC`);
+  const topClasses = await db.execute(`SELECT c.name, c.category, c.instructor, COUNT(b.id) as bookings FROM classes c LEFT JOIN bookings b ON b.class_id=c.id AND b.status='confirmed' WHERE c.date_time>=datetime('now','-30 days') GROUP BY c.name,c.category,c.instructor ORDER BY bookings DESC LIMIT 5`);
   res.json({
     stats: {
-      member_count:    memberCount.rows[0].n,
-      active_members:  activeMembers.rows[0].n,
-      total_revenue:   totalRevenue.rows[0].total,
-      month_revenue:   monthRevenue.rows[0].total,
-      class_count:     classCount.rows[0].n,
-      booking_count:   bookingCount.rows[0].n,
-      order_count:     orderCount.rows[0].n,
-      product_count:   productCount.rows[0].n,
+      member_count: memberCount.rows[0].n, active_members: activeMembers.rows[0].n,
+      total_revenue: totalRevenue.rows[0].total, month_revenue: monthRevenue.rows[0].total,
+      class_count: classCount.rows[0].n, booking_count: bookingCount.rows[0].n,
+      order_count: orderCount.rows[0].n, product_count: productCount.rows[0].n,
     },
-    revenue_by_month:     revenueByMonth.rows,
+    revenue_by_month: revenueByMonth.rows,
     membership_breakdown: membershipBreakdown.rows,
-    top_classes:          topClasses.rows,
+    top_classes: topClasses.rows,
   });
 };
 
+// ── Betalingsfouten ─────────────────────────────────────────────────────────
+
+const getPaymentFailures = async (req, res) => {
+  const result = await db.execute(`
+    SELECT pf.*, u.first_name, u.last_name, u.email
+    FROM payment_failures pf JOIN users u ON u.id = pf.user_id
+    WHERE pf.status = 'open'
+    ORDER BY pf.failure_count DESC, pf.created_at DESC
+  `);
+  res.json({ failures: result.rows });
+};
+
+const sendPaymentReminder = async (req, res) => {
+  const pfRes = await db.execute({ sql: 'SELECT pf.*, u.email, u.first_name FROM payment_failures pf JOIN users u ON u.id = pf.user_id WHERE pf.id = ?', args: [req.params.id] });
+  const pf = pfRes.rows[0];
+  if (!pf) return res.status(404).json({ error: 'Niet gevonden.' });
+
+  await sendEmail({
+    to: pf.email,
+    subject: 'Herinnering: openstaande betaling MHGym',
+    html: `<p>Beste ${pf.first_name},</p>
+           <p>Je hebt een openstaande betaling van <strong>€${pf.amount}</strong> bij MHGym.</p>
+           <p>Neem contact op om dit te regelen.</p>
+           <p>Met vriendelijke groet,<br/>Team MHGym</p>`,
+  }).catch(() => {});
+
+  await sendPush(pf.user_id, '💳 Openstaande betaling', `Je hebt een openstaande betaling van €${pf.amount}. Neem contact op.`).catch(() => {});
+
+  await db.execute({
+    sql: `UPDATE payment_failures SET last_reminder_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+    args: [req.params.id],
+  });
+  res.json({ message: 'Herinnering verstuurd.' });
+};
+
+const markPaymentPaid = async (req, res) => {
+  const pfRes = await db.execute({ sql: 'SELECT * FROM payment_failures WHERE id = ?', args: [req.params.id] });
+  if (!pfRes.rows[0]) return res.status(404).json({ error: 'Niet gevonden.' });
+  await db.execute({
+    sql: `UPDATE payment_failures SET status = 'paid', updated_at = datetime('now') WHERE id = ?`,
+    args: [req.params.id],
+  });
+  res.json({ message: 'Betaling gemarkeerd als voldaan.' });
+};
+
+const pauseMembershipFromFailure = async (req, res) => {
+  const pfRes = await db.execute({ sql: 'SELECT * FROM payment_failures WHERE id = ?', args: [req.params.id] });
+  const pf = pfRes.rows[0];
+  if (!pf) return res.status(404).json({ error: 'Niet gevonden.' });
+  await db.execute({
+    sql: `UPDATE users SET membership_paused = 1, membership_paused_reason = 'Openstaande betaling', updated_at = datetime('now') WHERE id = ?`,
+    args: [pf.user_id],
+  });
+  await db.execute({
+    sql: `UPDATE payment_failures SET status = 'paused', updated_at = datetime('now') WHERE id = ?`,
+    args: [req.params.id],
+  });
+  res.json({ message: 'Lidmaatschap gepauzeerd.' });
+};
+
 module.exports = {
-  listMembers, getMember, setMemberRole, deleteMember,
+  MEMBERSHIP_TYPES,
+  listMembers, getMember, setMemberRole, updateMemberNotes, pauseMembership,
+  assignMembership, markCashPaid, addPtLessons, deleteMember,
   adminListClasses, adminCreateClass, adminUpdateClass, adminCancelClass,
   adminListBookings,
   adminListPayments,
   getStats,
+  getPaymentFailures, sendPaymentReminder, markPaymentPaid, pauseMembershipFromFailure,
 };

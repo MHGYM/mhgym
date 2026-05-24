@@ -10,6 +10,8 @@ import ProfilePage from './pages/ProfilePage'
 import ShopPage from './pages/ShopPage'
 import AdminPage from './pages/AdminPage'
 import PersonalTrainingPage from './pages/PersonalTrainingPage'
+import AgendaPage from './pages/AgendaPage'
+import CommunityPage from './pages/CommunityPage'
 
 export default function App() {
   return (
@@ -19,13 +21,15 @@ export default function App() {
         <Route path="/login"    element={<AuthPage mode="login" />} />
         <Route path="/register" element={<AuthPage mode="register" />} />
 
-        {/* Protected — wrapped in Navbar layout */}
+        {/* Protected */}
         <Route element={<PrivateRoute />}>
           <Route element={<Navbar />}>
-            <Route path="/dashboard"   element={<DashboardPage />} />
-            <Route path="/schedule"    element={<SchedulePage />} />
-            <Route path="/memberships" element={<MembershipsPage />} />
-            <Route path="/shop"               element={<ShopPage />} />
+            <Route path="/dashboard"         element={<DashboardPage />} />
+            <Route path="/schedule"          element={<SchedulePage />} />
+            <Route path="/agenda"            element={<AgendaPage />} />
+            <Route path="/community"         element={<CommunityPage />} />
+            <Route path="/memberships"       element={<MembershipsPage />} />
+            <Route path="/shop"              element={<ShopPage />} />
             <Route path="/personal-training" element={<PersonalTrainingPage />} />
             <Route path="/profile"           element={<ProfilePage />} />
             <Route path="/admin"             element={<AdminPage />} />

@@ -1,832 +1,721 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
-  Users, Calendar, CreditCard, BarChart2, Package, ShoppingBag,
-  Plus, Edit2, Trash2, X, Check, AlertCircle, RefreshCw, Crown, Zap,
+  LayoutDashboard, Users, Calendar, CreditCard,
+  Zap, AlertTriangle, Users2,
+  Search, Plus, Check, X, Euro, Clock, Edit2, Trash2,
+  Bell, PauseCircle, PlayCircle, Pin, Crown
 } from 'lucide-react'
-import { useAuth } from '../context/AuthContext'
 import api from '../api'
 
-// ── Helper ──────────────────────────────────────────────────────────────────
-function fmt(d) {
-  if (!d) return '–'
-  return new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-function fmtMoney(n) {
-  return `€${Number(n || 0).toFixed(2).replace('.', ',')}`
-}
-function fmtDateTime(d) {
-  if (!d) return '–'
-  return new Date(d).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
+// ── Helpers ────────────────────────────────────────────────────────────────
+const fmtDate  = (s) => s ? new Date(s).toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : '—'
+const fmtMoney = (n) => n != null ? `€${Number(n).toFixed(2)}` : '—'
+const fmtDT    = (s) => s ? new Date(s).toLocaleString('nl-NL',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—'
 
-// ── Stats section ─────────────────────────────────────────────────────────
-function StatsSection({ stats }) {
-  if (!stats) return <div className="loading-center" style={{ minHeight: 200 }}><div className="spinner" /></div>
+// ── Membership types ──────────────────────────────────────────────────────
+const MEMBERSHIP_TYPES = [
+  { key:'jeugd_jaar',            label:'Jeugd Jaar',              category:'Groepslessen', price_monthly:45  },
+  { key:'jeugd_half_jaar',       label:'Jeugd Half jaar',         category:'Groepslessen', price_monthly:50  },
+  { key:'jeugd_maand',           label:'Jeugd Maand',             category:'Groepslessen', price_monthly:55  },
+  { key:'volwassenen_jaar',      label:'Volwassenen Jaar',        category:'Groepslessen', price_monthly:55  },
+  { key:'volwassenen_half_jaar', label:'Volwassenen Half jaar',   category:'Groepslessen', price_monthly:60  },
+  { key:'volwassenen_maand',     label:'Volwassenen Maand',       category:'Groepslessen', price_monthly:65  },
+  { key:'vt_onbeperkt',          label:'Vrij Trainen Onbeperkt',  category:'Vrij Trainen', custom_price:true },
+  { key:'vt_10x',                label:'Vrij Trainen 10x kaart',  category:'Vrij Trainen', custom_price:true },
+  { key:'vt_dagpas',             label:'Vrij Trainen Dagpas',     category:'Vrij Trainen', custom_price:true },
+  { key:'pt_losse_les',          label:'PT Losse les',            category:'PT',           price_per_lesson:70,  lessons:1  },
+  { key:'pt_10_lessen',          label:'PT 10 lessen',            category:'PT',           price_per_lesson:60,  lessons:10 },
+  { key:'pt_20_lessen',          label:'PT 20 lessen',            category:'PT',           price_per_lesson:58,  lessons:20 },
+  { key:'pt_30_lessen',          label:'PT 30 lessen',            category:'PT',           price_per_lesson:56,  lessons:30 },
+  { key:'pt_40_lessen',          label:'PT 40 lessen',            category:'PT',           price_per_lesson:54,  lessons:40 },
+  { key:'pt_50_lessen',          label:'PT 50 lessen',            category:'PT',           price_per_lesson:52,  lessons:50 },
+  { key:'pt_abo_1x',             label:'PT Abo 1x/week',          category:'PT Abo',       price_monthly:240, price_per_lesson:60 },
+  { key:'pt_abo_2x',             label:'PT Abo 2x/week',          category:'PT Abo',       price_monthly:440, price_per_lesson:55 },
+  { key:'pt_abo_3x',             label:'PT Abo 3x/week',          category:'PT Abo',       price_monthly:600, price_per_lesson:50 },
+]
 
-  const cards = [
-    { label: 'Leden', value: stats.member_count, icon: '👥', color: 'var(--accent)' },
-    { label: 'Actieve abonnementen', value: stats.active_members, icon: '✅', color: 'var(--success)' },
-    { label: 'Omzet deze maand', value: fmtMoney(stats.month_revenue), icon: '💰', color: 'var(--accent)' },
-    { label: 'Totale omzet', value: fmtMoney(stats.total_revenue), icon: '📈', color: 'var(--success)' },
-    { label: 'Aankomende lessen', value: stats.class_count, icon: '🥊', color: 'var(--info)' },
-    { label: 'Actieve boekingen', value: stats.booking_count, icon: '📅', color: 'var(--warning)' },
-    { label: 'Bestellingen', value: stats.order_count, icon: '📦', color: 'var(--info)' },
-    { label: 'Producten', value: stats.product_count, icon: '🛍️', color: 'var(--accent)' },
-  ]
-
+// ════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ════════════════════════════════════════════════════════════════════
+function DashboardSection() {
+  const [data, setData] = useState(null)
+  useEffect(() => { api.get('/admin/stats').then(r => setData(r.data)).catch(() => {}) }, [])
+  if (!data) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+  const s = data.stats
   return (
     <div>
-      <div className="admin-stats-grid">
-        {cards.map(({ label, value, icon, color }) => (
+      <div className="stats-grid">
+        {[
+          ['Leden',          s.member_count,              'var(--accent)'],
+          ['Actieve abo\'s', s.active_members,            'var(--success)'],
+          ['Omzet (maand)',  fmtMoney(s.month_revenue),   'var(--info)'],
+          ['Totale omzet',   fmtMoney(s.total_revenue),   'var(--text-muted)'],
+          ['Lessen',         s.class_count,               'var(--warning)'],
+          ['Boekingen',      s.booking_count,             'var(--text-muted)'],
+          ['Orders',         s.order_count,               'var(--text-muted)'],
+          ['Producten',      s.product_count,             'var(--text-muted)'],
+        ].map(([label, value, color]) => (
           <div key={label} className="stat-card">
-            <div style={{ fontSize: '1.5rem' }}>{icon}</div>
-            <div className="stat-value" style={{ color }}>{value}</div>
-            <div className="stat-label">{label}</div>
+            <p className="stat-label">{label}</p>
+            <p className="stat-value" style={{color}}>{value}</p>
           </div>
         ))}
       </div>
-    </div>
-  )
-}
-
-// ── Members section ────────────────────────────────────────────────────────
-function MembersSection() {
-  const [members, setMembers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch]   = useState('')
-
-  useEffect(() => {
-    api.get('/admin/members').then((r) => { setMembers(r.data.members); setLoading(false) })
-  }, [])
-
-  const filtered = members.filter((m) =>
-    `${m.first_name} ${m.last_name} ${m.email}`.toLowerCase().includes(search.toLowerCase())
-  )
-
-  if (loading) return <div className="loading-center"><div className="spinner" /></div>
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', alignItems: 'center' }}>
-        <input
-          className="form-input" placeholder="Zoek op naam of e-mail..."
-          value={search} onChange={(e) => setSearch(e.target.value)}
-          style={{ maxWidth: 300 }}
-        />
-        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{filtered.length} leden</span>
-      </div>
-
-      <div className="admin-table-wrap">
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Naam</th>
-              <th>E-mail</th>
-              <th>Lid sinds</th>
-              <th>Abonnement</th>
-              <th>Status</th>
-              <th>Boekingen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((m) => (
-              <tr key={m.id}>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{m.first_name} {m.last_name}</div>
-                  {m.role === 'admin' && <span className="badge badge-warning" style={{ marginTop: 3 }}>Admin</span>}
-                </td>
-                <td style={{ color: 'var(--text-muted)' }}>{m.email}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{fmt(m.created_at)}</td>
-                <td>
-                  {m.membership_name
-                    ? <span>{m.membership_category} – {m.membership_name}</span>
-                    : <span style={{ color: 'var(--text-muted)' }}>Geen</span>
-                  }
-                </td>
-                <td>
-                  {m.membership_status === 'active'
-                    ? <span className="badge badge-success">Actief</span>
-                    : <span className="badge badge-muted">Inactief</span>
-                  }
-                </td>
-                <td>{m.total_bookings ?? 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Geen leden gevonden</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Classes section ────────────────────────────────────────────────────────
-function ClassesSection() {
-  const [classes, setClasses] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editItem, setEditItem]   = useState(null)
-  const [saving, setSaving]       = useState(false)
-  const [error, setError]         = useState('')
-  const [search, setSearch]       = useState('')
-
-  const [form, setForm] = useState({
-    name: '', instructor: '', category: 'kickboksen',
-    date_time: '', duration_minutes: 60, max_capacity: 20, location: 'Zaal A',
-  })
-
-  const load = () => api.get('/admin/classes').then((r) => { setClasses(r.data.classes); setLoading(false) })
-  useEffect(() => { load() }, [])
-
-  const openCreate = () => {
-    setEditItem(null)
-    setForm({ name: '', instructor: '', category: 'kickboksen', date_time: '', duration_minutes: 60, max_capacity: 20, location: 'Zaal A' })
-    setShowModal(true)
-  }
-
-  const openEdit = (cls) => {
-    setEditItem(cls)
-    setForm({
-      name: cls.name, instructor: cls.instructor, category: cls.category,
-      date_time: cls.date_time?.slice(0, 16), duration_minutes: cls.duration_minutes,
-      max_capacity: cls.max_capacity, location: cls.location,
-    })
-    setShowModal(true)
-  }
-
-  const handleSave = async () => {
-    setSaving(true); setError('')
-    try {
-      if (editItem) await api.put(`/admin/classes/${editItem.id}`, form)
-      else          await api.post('/admin/classes', form)
-      setShowModal(false); load()
-    } catch (e) {
-      setError(e.response?.data?.error || 'Opslaan mislukt.')
-    } finally { setSaving(false) }
-  }
-
-  const handleCancel = async (id) => {
-    if (!confirm('Les annuleren?')) return
-    await api.delete(`/admin/classes/${id}`)
-    load()
-  }
-
-  const filtered = classes.filter((c) =>
-    `${c.name} ${c.instructor} ${c.category}`.toLowerCase().includes(search.toLowerCase())
-  )
-  const upcoming = filtered.filter((c) => new Date(c.date_time) >= new Date() && c.status === 'scheduled')
-  const past     = filtered.filter((c) => new Date(c.date_time) < new Date()  || c.status !== 'scheduled')
-
-  if (loading) return <div className="loading-center"><div className="spinner" /></div>
-
-  return (
-    <div>
-      {showModal && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal">
-            <div className="modal-header">
-              <h3>{editItem ? 'Les bewerken' : 'Nieuwe les'}</h3>
-              <button className="btn-icon" onClick={() => setShowModal(false)}><X size={18} /></button>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1.5rem',marginTop:'1.5rem'}}>
+        <div className="card">
+          <h3 style={{marginBottom:'1rem'}}>Omzet per maand</h3>
+          {data.revenue_by_month.map(r => (
+            <div key={r.month} style={{display:'flex',justifyContent:'space-between',padding:'0.4rem 0',borderBottom:'1px solid var(--border)',fontSize:'0.875rem'}}>
+              <span style={{color:'var(--text-muted)'}}>{r.month}</span>
+              <span style={{fontWeight:600}}>{fmtMoney(r.revenue)}</span>
             </div>
-            {error && <div className="alert alert-error"><AlertCircle size={14} />{error}</div>}
-            <div className="auth-form">
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Naam</label>
-                  <input className="form-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Instructeur</label>
-                  <input className="form-input" value={form.instructor} onChange={(e) => setForm((f) => ({ ...f, instructor: e.target.value }))} />
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Categorie</label>
-                  <select className="form-input" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
-                    {['kickboksen','boksen','ladies-only','jeugd','kids','recreanten'].map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Locatie</label>
-                  <select className="form-input" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}>
-                    {['Zaal A','Zaal B','Zaal C'].map((l) => <option key={l} value={l}>{l}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Datum & tijd</label>
-                  <input type="datetime-local" className="form-input" value={form.date_time} onChange={(e) => setForm((f) => ({ ...f, date_time: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Duur (min)</label>
-                  <input type="number" className="form-input" value={form.duration_minutes} onChange={(e) => setForm((f) => ({ ...f, duration_minutes: Number(e.target.value) }))} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Max. deelnemers</label>
-                <input type="number" className="form-input" value={form.max_capacity} onChange={(e) => setForm((f) => ({ ...f, max_capacity: Number(e.target.value) }))} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Annuleer</button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? <span className="spinner spinner-sm" /> : <><Check size={15} /> Opslaan</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <input className="form-input" placeholder="Zoek les..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 260 }} />
-        <button className="btn btn-primary btn-sm" onClick={openCreate}><Plus size={14} /> Nieuwe les</button>
-        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{upcoming.length} aankomend</span>
-      </div>
-
-      <h3 style={{ marginBottom: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Aankomende lessen</h3>
-      <div className="admin-table-wrap" style={{ marginBottom: '2rem' }}>
-        <table className="admin-table">
-          <thead><tr><th>Les</th><th>Instructeur</th><th>Datum & tijd</th><th>Bezetting</th><th>Acties</th></tr></thead>
-          <tbody>
-            {upcoming.slice(0, 50).map((cls) => (
-              <tr key={cls.id}>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{cls.name}</div>
-                  <span className={`badge badge-${cls.category}`}>{cls.category}</span>
-                </td>
-                <td style={{ color: 'var(--text-muted)' }}>{cls.instructor}</td>
-                <td>{fmtDateTime(cls.date_time)}</td>
-                <td>
-                  <span style={{ color: cls.current_bookings >= cls.max_capacity ? 'var(--error)' : 'var(--text-2)' }}>
-                    {cls.current_bookings}/{cls.max_capacity}
-                  </span>
-                </td>
-                <td className="td-actions">
-                  <button className="btn btn-ghost btn-sm" onClick={() => openEdit(cls)}><Edit2 size={13} /></button>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleCancel(cls.id)}><Trash2 size={13} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {upcoming.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Geen aankomende lessen</div>}
-      </div>
-    </div>
-  )
-}
-
-// ── Bookings section ───────────────────────────────────────────────────────
-function BookingsSection() {
-  const [bookings, setBookings] = useState([])
-  const [loading, setLoading]   = useState(true)
-
-  useEffect(() => {
-    api.get('/admin/bookings').then((r) => { setBookings(r.data.bookings); setLoading(false) })
-  }, [])
-
-  if (loading) return <div className="loading-center"><div className="spinner" /></div>
-
-  return (
-    <div className="admin-table-wrap">
-      <table className="admin-table">
-        <thead><tr><th>Lid</th><th>Les</th><th>Datum les</th><th>Geboekt op</th><th>Status</th></tr></thead>
-        <tbody>
-          {bookings.map((b) => (
-            <tr key={b.id}>
-              <td>
-                <div style={{ fontWeight: 600 }}>{b.first_name} {b.last_name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{b.email}</div>
-              </td>
-              <td>
-                <div>{b.class_name}</div>
-                <span className={`badge badge-${b.category}`}>{b.category}</span>
-              </td>
-              <td style={{ color: 'var(--text-muted)' }}>{fmtDateTime(b.date_time)}</td>
-              <td style={{ color: 'var(--text-muted)' }}>{fmt(b.booked_at)}</td>
-              <td>
-                <span className={`badge ${b.status === 'confirmed' ? 'badge-success' : 'badge-muted'}`}>
-                  {b.status}
-                </span>
-              </td>
-            </tr>
           ))}
-        </tbody>
-      </table>
-      {bookings.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Geen boekingen</div>}
-    </div>
-  )
-}
-
-// ── Payments section ───────────────────────────────────────────────────────
-function PaymentsSection() {
-  const [payments, setPayments] = useState([])
-  const [loading, setLoading]   = useState(true)
-
-  useEffect(() => {
-    api.get('/admin/payments').then((r) => { setPayments(r.data.payments); setLoading(false) })
-  }, [])
-
-  const totalPaid = payments.filter((p) => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0)
-
-  if (loading) return <div className="loading-center"><div className="spinner" /></div>
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        <div className="stat-card" style={{ minWidth: 180 }}>
-          <div className="stat-label">Totale omzet</div>
-          <div className="stat-value" style={{ color: 'var(--success)' }}>{fmtMoney(totalPaid)}</div>
         </div>
-        <div className="stat-card" style={{ minWidth: 180 }}>
-          <div className="stat-label">Betalingen</div>
-          <div className="stat-value">{payments.length}</div>
+        <div className="card">
+          <h3 style={{marginBottom:'1rem'}}>Populairste lessen</h3>
+          {data.top_classes.map((c,i) => (
+            <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'0.4rem 0',borderBottom:'1px solid var(--border)',fontSize:'0.875rem'}}>
+              <div><span style={{fontWeight:600}}>{c.name}</span><span style={{color:'var(--text-muted)',marginLeft:8}}>{c.instructor}</span></div>
+              <span style={{color:'var(--accent)',fontWeight:700}}>{c.bookings}×</span>
+            </div>
+          ))}
         </div>
-        <div className="stat-card" style={{ minWidth: 180 }}>
-          <div className="stat-label">Geslaagd</div>
-          <div className="stat-value" style={{ color: 'var(--success)' }}>{payments.filter((p) => p.status === 'paid').length}</div>
-        </div>
-        <div className="stat-card" style={{ minWidth: 180 }}>
-          <div className="stat-label">Mislukt/Open</div>
-          <div className="stat-value" style={{ color: 'var(--error)' }}>{payments.filter((p) => p.status !== 'paid').length}</div>
-        </div>
-      </div>
-
-      <div className="admin-table-wrap">
-        <table className="admin-table">
-          <thead><tr><th>Lid</th><th>Bedrag</th><th>Type</th><th>Status</th><th>Datum</th></tr></thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr key={p.id}>
-                <td>
-                  <div style={{ fontWeight: 600 }}>{p.first_name} {p.last_name}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.email}</div>
-                </td>
-                <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{fmtMoney(p.amount)}</td>
-                <td>
-                  <span className={`badge ${p.type === 'membership' ? 'badge-accent' : 'badge-info'}`}>
-                    {p.type === 'membership' ? '🏋️ Abo' : '📦 Winkel'}
-                  </span>
-                </td>
-                <td>
-                  <span className={`badge ${p.status === 'paid' ? 'badge-success' : p.status === 'open' ? 'badge-warning' : 'badge-error'}`}>
-                    {p.status}
-                  </span>
-                </td>
-                <td style={{ color: 'var(--text-muted)' }}>{fmt(p.created_at)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {payments.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Geen betalingen</div>}
       </div>
     </div>
   )
 }
 
-// ── Shop admin section ─────────────────────────────────────────────────────
-function ShopAdminSection() {
-  const [products, setProducts] = useState([])
-  const [orders, setOrders]     = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [tab, setTab]           = useState('products')
-  const [showModal, setShowModal] = useState(false)
-  const [editItem, setEditItem]   = useState(null)
-  const [saving, setSaving]       = useState(false)
-  const [error, setError]         = useState('')
-  const [form, setForm] = useState({ name: '', category: 'handschoenen', description: '', price: '', stock: 10 })
+// ════════════════════════════════════════════════════════════════════
+// LEDEN
+// ════════════════════════════════════════════════════════════════════
+function LedenSection() {
+  const [members,       setMembers]       = useState([])
+  const [search,        setSearch]        = useState('')
+  const [loading,       setLoading]       = useState(true)
+  const [selected,      setSelected]      = useState(null)
+  const [detail,        setDetail]        = useState(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [showAssign,    setShowAssign]    = useState(false)
+  const [assignType,    setAssignType]    = useState(MEMBERSHIP_TYPES[0].key)
+  const [assignPrice,   setAssignPrice]   = useState('')
+  const [assignCash,    setAssignCash]    = useState(false)
+  const [assignPaid,    setAssignPaid]    = useState(false)
+  const [assignStart,   setAssignStart]   = useState(new Date().toISOString().split('T')[0])
+  const [assignNotes,   setAssignNotes]   = useState('')
+  const [showPtAdd,     setShowPtAdd]     = useState(false)
+  const [ptLessons,     setPtLessons]     = useState('')
+  const [ptNotes,       setPtNotes]       = useState('')
+  const [editNotes,     setEditNotes]     = useState(false)
+  const [notes,         setNotes]         = useState('')
+  const [isCash,        setIsCash]        = useState(false)
+  const timerRef = useRef(null)
 
-  const load = async () => {
-    const [pRes, oRes] = await Promise.all([api.get('/shop/admin/products'), api.get('/shop/admin/orders')])
-    setProducts(pRes.data.products)
-    setOrders(oRes.data.orders)
+  useEffect(() => { loadMembers() }, [])
+
+  const loadMembers = async (q = '') => {
+    setLoading(true)
+    const r = await api.get(`/admin/members${q ? `?q=${encodeURIComponent(q)}` : ''}`)
+    setMembers(r.data.members)
     setLoading(false)
   }
-  useEffect(() => { load() }, [])
 
-  const openCreate = () => { setEditItem(null); setForm({ name: '', category: 'handschoenen', description: '', price: '', stock: 10 }); setShowModal(true) }
-  const openEdit = (p) => { setEditItem(p); setForm({ name: p.name, category: p.category, description: p.description || '', price: p.price, stock: p.stock }); setShowModal(true) }
-  const handleDelete = async (id) => { if (!confirm('Product verwijderen?')) return; await api.delete(`/shop/admin/products/${id}`); load() }
-
-  const handleSave = async () => {
-    setSaving(true); setError('')
-    try {
-      if (editItem) await api.put(`/shop/admin/products/${editItem.id}`, form)
-      else          await api.post('/shop/admin/products', form)
-      setShowModal(false); load()
-    } catch (e) { setError(e.response?.data?.error || 'Opslaan mislukt.') }
-    finally { setSaving(false) }
+  const handleSearch = v => {
+    setSearch(v)
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => loadMembers(v), 350)
   }
 
-  if (loading) return <div className="loading-center"><div className="spinner" /></div>
+  const openMember = async id => {
+    setSelected(id); setLoadingDetail(true); setDetail(null)
+    const r = await api.get(`/admin/members/${id}`)
+    setDetail(r.data)
+    setNotes(r.data.member.admin_notes || '')
+    setIsCash(!!r.data.member.is_cash_payer)
+    setLoadingDetail(false)
+  }
+
+  const selectedMtype = MEMBERSHIP_TYPES.find(t => t.key === assignType)
+  const needsPrice = selectedMtype?.custom_price || selectedMtype?.category === 'PT' || selectedMtype?.category === 'PT Abo'
+
+  const doAssign = async () => {
+    try {
+      await api.post(`/admin/members/${selected}/membership`, {
+        membership_type_key: assignType,
+        admin_price: needsPrice ? (parseFloat(assignPrice) || null) : null,
+        is_cash: assignCash, cash_paid: assignPaid,
+        start_date: assignStart, notes: assignNotes || undefined,
+      })
+      setShowAssign(false); openMember(selected); loadMembers(search)
+    } catch (e) { alert(e.response?.data?.error || 'Fout') }
+  }
+
+  const doAddPt = async () => {
+    try {
+      await api.post(`/admin/members/${selected}/pt-lessons`, { lessons: parseInt(ptLessons), notes: ptNotes })
+      setShowPtAdd(false); setPtLessons(''); setPtNotes(''); openMember(selected)
+    } catch (e) { alert(e.response?.data?.error || 'Fout') }
+  }
+
+  const doSaveNotes = async () => {
+    await api.put(`/admin/members/${selected}/notes`, { admin_notes: notes, is_cash_payer: isCash })
+    setEditNotes(false); loadMembers(search)
+  }
+
+  const doPause = async () => {
+    const paused = detail?.member?.membership_paused
+    await api.put(`/admin/members/${selected}/pause`, { paused: !paused, reason: paused ? null : 'Admin actie' })
+    openMember(selected); loadMembers(search)
+  }
+
+  const doMarkPaid = async mid => {
+    await api.put(`/admin/members/${selected}/memberships/${mid}/paid`); openMember(selected)
+  }
+
+  const doDelete = async id => {
+    if (!confirm('Lid definitief verwijderen?')) return
+    await api.delete(`/admin/members/${id}`)
+    setSelected(null); setDetail(null); loadMembers(search)
+  }
 
   return (
-    <div>
-      {showModal && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal">
-            <div className="modal-header">
-              <h3>{editItem ? 'Product bewerken' : 'Nieuw product'}</h3>
-              <button className="btn-icon" onClick={() => setShowModal(false)}><X size={18} /></button>
-            </div>
-            {error && <div className="alert alert-error"><AlertCircle size={14} />{error}</div>}
-            <div className="auth-form">
-              <div className="form-group">
-                <label className="form-label">Naam</label>
-                <input className="form-input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Categorie</label>
-                  <select className="form-input" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
-                    {['handschoenen','bescherming','kleding','accessoires'].map((c) => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Prijs (€)</label>
-                  <input type="number" step="0.01" className="form-input" value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Beschrijving</label>
-                <input className="form-input" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Voorraad</label>
-                <input type="number" className="form-input" value={form.stock} onChange={(e) => setForm((f) => ({ ...f, stock: Number(e.target.value) }))} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Annuleer</button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? <span className="spinner spinner-sm" /> : <><Check size={15} /> Opslaan</>}
-              </button>
-            </div>
-          </div>
+    <div style={{display:'grid', gridTemplateColumns: selected ? '320px 1fr' : '1fr', gap:'1.5rem'}}>
+      {/* Lijst */}
+      <div>
+        <div className="search-box" style={{marginBottom:'1rem'}}>
+          <Search size={16} style={{color:'var(--text-muted)'}}/>
+          <input className="search-input" placeholder="Zoek naam of e-mail…" value={search} onChange={e => handleSearch(e.target.value)}/>
         </div>
-      )}
-
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-        {['products', 'orders'].map((t) => (
-          <button key={t} className={`btn ${tab === t ? 'btn-primary' : 'btn-ghost'} btn-sm`} onClick={() => setTab(t)}>
-            {t === 'products' ? '📦 Producten' : '🛍️ Bestellingen'}
-          </button>
-        ))}
-        {tab === 'products' && <button className="btn btn-ghost btn-sm" onClick={openCreate} style={{ marginLeft: 'auto' }}><Plus size={14} /> Nieuw product</button>}
+        {loading && <p style={{color:'var(--text-muted)',fontSize:'0.875rem'}}>Laden…</p>}
+        <div style={{display:'flex',flexDirection:'column',gap:'0.4rem'}}>
+          {members.map(m => (
+            <div key={m.id} className={`member-row${selected===m.id?' active':''}`} onClick={() => openMember(m.id)}>
+              <div className="member-row-avatar">{(m.first_name?.[0]||'?')+(m.last_name?.[0]||'')}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:'0.875rem',display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
+                  {m.first_name} {m.last_name}
+                  {m.is_cash_payer ? <span className="badge-warning">Cash</span> : null}
+                  {m.membership_paused ? <span className="badge-error">Gepauzeerd</span> : null}
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.email}</div>
+                {m.membership_name && (
+                  <div style={{fontSize:'0.72rem',color:'var(--accent)',marginTop:1}}>
+                    {m.membership_name}
+                    {m.is_cash ? <span style={{marginLeft:4,color:m.cash_paid?'var(--success)':'var(--error)'}}>{m.cash_paid?'✓':'⚠'}</span> : null}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {tab === 'products' ? (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead><tr><th>Product</th><th>Categorie</th><th>Prijs</th><th>Voorraad</th><th>Status</th><th>Acties</th></tr></thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ fontWeight: 600 }}>{p.name}</td>
-                  <td><span className={`badge badge-${p.category}`}>{p.category}</span></td>
-                  <td style={{ color: 'var(--accent)', fontWeight: 700 }}>{fmtMoney(p.price)}</td>
-                  <td>{p.stock}</td>
-                  <td><span className={`badge ${p.active ? 'badge-success' : 'badge-muted'}`}>{p.active ? 'Actief' : 'Inactief'}</span></td>
-                  <td className="td-actions">
-                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}><Edit2 size={13} /></button>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p.id)}><Trash2 size={13} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead><tr><th>Klant</th><th>Bestelling</th><th>Bedrag</th><th>Status</th><th>Datum</th></tr></thead>
-            <tbody>
-              {orders.map((o) => (
-                <tr key={o.id}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{o.first_name} {o.last_name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{o.email}</div>
-                  </td>
-                  <td>
-                    {(o.items || []).map((item) => (
-                      <div key={item.id} style={{ fontSize: '0.8rem' }}>{item.quantity}× {item.product_name}</div>
-                    ))}
-                  </td>
-                  <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{fmtMoney(o.total_amount)}</td>
-                  <td><span className={`badge ${o.status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{o.status}</span></td>
-                  <td style={{ color: 'var(--text-muted)' }}>{fmt(o.created_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {orders.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Geen bestellingen</div>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── PT Agenda section ──────────────────────────────────────────────────────
-function PTAgendaSection() {
-  const [slots,     setSlots]     = useState([])
-  const [bookings,  setBookings]  = useState([])
-  const [balances,  setBalances]  = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [tab,       setTab]       = useState('slots')
-  const [showModal, setShowModal] = useState(false)
-  const [saving,    setSaving]    = useState(false)
-  const [error,     setError]     = useState('')
-  const [form, setForm] = useState({ date_time: '', duration_minutes: 60, trainer: 'Mohammed', notes: '' })
-
-  const load = () => {
-    setLoading(true)
-    const from = new Date().toISOString()
-    const to   = new Date(Date.now() + 30 * 86400000).toISOString()
-    Promise.all([
-      api.get('/pt/slots', { params: { from, to, all: 1 } }),
-      api.get('/pt/bookings/admin'),
-      api.get('/pt/balance/admin'),
-    ]).then(([s, b, bal]) => {
-      setSlots(s.data.slots)
-      setBookings(b.data.bookings)
-      setBalances(bal.data.balances)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }
-
-  useEffect(() => { load() }, [])
-
-  const createSlot = async () => {
-    setSaving(true); setError('')
-    try {
-      await api.post('/pt/slots', form)
-      setShowModal(false)
-      setForm({ date_time: '', duration_minutes: 60, trainer: 'Mohammed', notes: '' })
-      load()
-    } catch (e) { setError(e.response?.data?.error || 'Opslaan mislukt.') }
-    finally { setSaving(false) }
-  }
-
-  const deleteSlot = async (id) => {
-    if (!confirm('Slot verwijderen?')) return
-    await api.delete(`/pt/slots/${id}`)
-    load()
-  }
-
-  const confirmBooking = async (id) => {
-    await api.put(`/pt/bookings/${id}/confirm`); load()
-  }
-  const declineBooking = async (id) => {
-    if (!confirm('Boeking afwijzen?')) return
-    await api.put(`/pt/bookings/${id}/decline`); load()
-  }
-
-  const statusBadge = (s) => ({
-    pending:   <span className="badge badge-warning">Wacht</span>,
-    confirmed: <span className="badge badge-success">Bevestigd</span>,
-    cancelled: <span className="badge badge-muted">Geannuleerd</span>,
-    declined:  <span className="badge badge-error">Afgewezen</span>,
-    completed: <span className="badge badge-info">Voltooid</span>,
-  }[s] ?? <span className="badge badge-muted">{s}</span>)
-
-  if (loading) return <div className="loading-center"><div className="spinner" /></div>
-
-  return (
-    <div>
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-        {[
-          { id: 'slots',    label: `📅 Slots (${slots.length})`        },
-          { id: 'bookings', label: `📋 Boekingen (${bookings.length})` },
-          { id: 'balances', label: `💪 Saldi (${balances.length})`      },
-        ].map(({ id, label }) => (
-          <button key={id} onClick={() => setTab(id)} className={`filter-btn${tab === id ? ' active' : ''}`}>{label}</button>
-        ))}
-        <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowModal(true)}>
-          <Plus size={14} /> Nieuw slot
-        </button>
-      </div>
-
-      {/* Slot aanmaken modal */}
-      {showModal && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: 420 }}>
-            <div className="modal-header">
-              <h3>PT Slot aanmaken</h3>
-              <button className="btn-icon" onClick={() => setShowModal(false)}><X size={18} /></button>
-            </div>
-            {error && <div className="alert alert-error" style={{ marginTop: '0.75rem' }}><AlertCircle size={14} />{error}</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '1rem' }}>
-              <div className="form-group">
-                <label className="form-label">Datum & tijd *</label>
-                <input className="form-input" type="datetime-local" value={form.date_time}
-                  onChange={(e) => setForm((f) => ({ ...f, date_time: e.target.value }))} />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Duur (minuten)</label>
-                  <input className="form-input" type="number" value={form.duration_minutes}
-                    onChange={(e) => setForm((f) => ({ ...f, duration_minutes: parseInt(e.target.value) }))} />
+      {/* Detail paneel */}
+      {selected && (
+        <div style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
+          {loadingDetail && <p style={{color:'var(--text-muted)'}}>Laden…</p>}
+          {detail && (() => {
+            const m = detail.member
+            const activeMem = detail.memberships?.find(x => ['active','cancelling'].includes(x.status))
+            return <>
+              {/* Kop */}
+              <div className="card" style={{display:'flex',alignItems:'center',gap:'1rem'}}>
+                <div style={{width:50,height:50,borderRadius:'50%',background:'var(--accent)',color:'#000',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:'1.1rem',flexShrink:0}}>
+                  {(m.first_name?.[0]||'?')+(m.last_name?.[0]||'')}
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Trainer</label>
-                  <input className="form-input" value={form.trainer}
-                    onChange={(e) => setForm((f) => ({ ...f, trainer: e.target.value }))} />
+                <div style={{flex:1}}>
+                  <h3 style={{margin:0}}>{m.first_name} {m.last_name}</h3>
+                  <p style={{color:'var(--text-muted)',fontSize:'0.85rem',margin:0}}>{m.email} · {m.phone||'—'}</p>
+                  <div style={{display:'flex',gap:4,marginTop:4,flexWrap:'wrap'}}>
+                    <span className="badge-neutral">{m.role}</span>
+                    {m.is_cash_payer && <span className="badge-warning">Cash betaler</span>}
+                    {m.membership_paused && <span className="badge-error">Gepauzeerd</span>}
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:'0.5rem',flexShrink:0}}>
+                  <button className="btn btn-ghost btn-sm" onClick={doPause}>
+                    {m.membership_paused ? <><PlayCircle size={14}/> Hervatten</> : <><PauseCircle size={14}/> Pauzeren</>}
+                  </button>
+                  <button className="btn btn-danger btn-sm" onClick={() => doDelete(m.id)}><Trash2 size={13}/></button>
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Notities</label>
-                <input className="form-input" value={form.notes} placeholder="Optioneel..."
-                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
-              </div>
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <button className="btn btn-ghost btn-full" onClick={() => setShowModal(false)}>Annuleren</button>
-                <button className="btn btn-primary btn-full" onClick={createSlot} disabled={saving || !form.date_time}>
-                  {saving ? <span className="spinner spinner-sm" /> : 'Slot aanmaken'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Slots tab */}
-      {tab === 'slots' && (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead><tr><th>Datum & tijd</th><th>Trainer</th><th>Status</th><th>Notities</th><th>Acties</th></tr></thead>
-            <tbody>
-              {slots.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Geen slots</td></tr>}
-              {slots.map((s) => (
-                <tr key={s.id}>
-                  <td style={{ fontWeight: 600 }}>
-                    {new Date(s.date_time).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })}{' '}
-                    {new Date(s.date_time).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
-                  </td>
-                  <td>{s.trainer}</td>
-                  <td>
-                    {s.status === 'available' ? <span className="badge badge-success">Vrij</span>
-                     : s.status === 'booked'  ? <span className="badge badge-warning">Geboekt</span>
-                     : <span className="badge badge-muted">Geannuleerd</span>}
-                  </td>
-                  <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>{s.notes || '—'}</td>
-                  <td>
-                    <button className="btn btn-ghost btn-sm" onClick={() => deleteSlot(s.id)} style={{ color: 'var(--error)' }}>
-                      <Trash2 size={13} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              {/* Notities */}
+              <div className="card">
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                  <h3 style={{margin:0}}>Admin notities</h3>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditNotes(e => !e)}><Edit2 size={13}/> {editNotes?'Annuleren':'Bewerken'}</button>
+                </div>
+                {editNotes ? (
+                  <div style={{display:'flex',flexDirection:'column',gap:'0.6rem'}}>
+                    <textarea className="input" rows={3} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notities…" style={{resize:'vertical'}}/>
+                    <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.875rem',cursor:'pointer'}}>
+                      <input type="checkbox" checked={isCash} onChange={e => setIsCash(e.target.checked)}/> Cash betaler
+                    </label>
+                    <button className="btn btn-primary btn-sm" style={{alignSelf:'flex-start'}} onClick={doSaveNotes}><Check size={13}/> Opslaan</button>
+                  </div>
+                ) : (
+                  <p style={{color:m.admin_notes?'var(--text-2)':'var(--text-muted)',fontSize:'0.875rem',whiteSpace:'pre-wrap'}}>{m.admin_notes||'Geen notities'}</p>
+                )}
+              </div>
 
-      {/* Bookings tab */}
-      {tab === 'bookings' && (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead><tr><th>Lid</th><th>Datum sessie</th><th>Status</th><th>Extra</th><th>Acties</th></tr></thead>
-            <tbody>
-              {bookings.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Geen boekingen</td></tr>}
-              {bookings.map((b) => (
-                <tr key={b.id}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{b.first_name} {b.last_name}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{b.email}</div>
-                  </td>
-                  <td>
-                    {new Date(b.date_time).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })}{' '}
-                    {new Date(b.date_time).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
-                  </td>
-                  <td>{statusBadge(b.status)}</td>
-                  <td>{b.extra_person ? <span className="badge badge-warning">+persoon</span> : '—'}</td>
-                  <td>
-                    {b.status === 'pending' && (
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        <button className="btn btn-primary btn-sm" onClick={() => confirmBooking(b.id)}>
-                          <Check size={13} /> OK
-                        </button>
-                        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => declineBooking(b.id)}>
-                          <X size={13} />
-                        </button>
+              {/* Lidmaatschap */}
+              <div className="card">
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                  <h3 style={{margin:0}}>Lidmaatschap</h3>
+                  <div style={{display:'flex',gap:'0.5rem'}}>
+                    <button className="btn btn-outline btn-sm" onClick={() => setShowAssign(s=>!s)}><Plus size={13}/> Toewijzen</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setShowPtAdd(s=>!s)}><Zap size={13}/> PT lessen</button>
+                  </div>
+                </div>
+
+                {activeMem ? (
+                  <div style={{padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.75rem'}}>
+                    <div style={{fontWeight:600}}>{activeMem.membership_name||activeMem.membership_type_key}</div>
+                    <div style={{fontSize:'0.8rem',color:'var(--text-muted)',marginTop:3}}>
+                      {fmtDate(activeMem.start_date)} – {activeMem.end_date?fmtDate(activeMem.end_date):'Doorlopend'}
+                      {activeMem.is_cash && <span style={{marginLeft:8,color:activeMem.cash_paid?'var(--success)':'var(--error)'}}>
+                        {activeMem.cash_paid?'✓ Cash betaald':'⚠ Cash onbetaald'}
+                      </span>}
+                    </div>
+                    {activeMem.admin_price && <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>Prijs: {fmtMoney(activeMem.admin_price)}</div>}
+                    {activeMem.is_cash && !activeMem.cash_paid && (
+                      <button className="btn btn-primary btn-sm" style={{marginTop:'0.5rem'}} onClick={() => doMarkPaid(activeMem.id)}>
+                        <Check size={13}/> Betaling ontvangen
+                      </button>
+                    )}
+                  </div>
+                ) : <p style={{color:'var(--text-muted)',fontSize:'0.875rem',marginBottom:'0.75rem'}}>Geen actief lidmaatschap</p>}
+
+                {m.pt_lessons_remaining > 0 && (
+                  <div style={{padding:'0.5rem 0.75rem',background:'var(--accent-dim)',borderRadius:'var(--r)',fontSize:'0.85rem',color:'var(--accent)',marginBottom:'0.75rem'}}>
+                    💪 {m.pt_lessons_remaining} PT lessen resterend
+                  </div>
+                )}
+
+                {/* Assign form */}
+                {showAssign && (
+                  <div style={{padding:'1rem',background:'var(--surface-3)',borderRadius:'var(--r)',display:'flex',flexDirection:'column',gap:'0.6rem'}}>
+                    <h4 style={{margin:0,fontSize:'0.875rem'}}>Lidmaatschap toewijzen</h4>
+                    <select className="input" value={assignType} onChange={e => setAssignType(e.target.value)}>
+                      {['Groepslessen','Vrij Trainen','PT','PT Abo'].map(cat => (
+                        <optgroup key={cat} label={cat}>
+                          {MEMBERSHIP_TYPES.filter(t => t.category===cat).map(t => (
+                            <option key={t.key} value={t.key}>
+                              {t.label}{t.price_monthly?` — €${t.price_monthly}/mnd`:''}{t.price_per_lesson?` — €${t.price_per_lesson}/les`:''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    {needsPrice && (
+                      <div>
+                        <label className="input-label">{selectedMtype?.category==='PT Abo'?'Prijs/maand':'Prijs'} (€)</label>
+                        <input className="input" type="number" value={assignPrice} onChange={e => setAssignPrice(e.target.value)} placeholder={selectedMtype?.price_monthly||selectedMtype?.price_per_lesson||''}/>
                       </div>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
+                      <div><label className="input-label">Startdatum</label><input className="input" type="date" value={assignStart} onChange={e => setAssignStart(e.target.value)}/></div>
+                      <div style={{display:'flex',flexDirection:'column',gap:4,justifyContent:'flex-end'}}>
+                        <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.83rem',cursor:'pointer'}}><input type="checkbox" checked={assignCash} onChange={e=>setAssignCash(e.target.checked)}/> Cash betaler</label>
+                        {assignCash && <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.83rem',cursor:'pointer'}}><input type="checkbox" checked={assignPaid} onChange={e=>setAssignPaid(e.target.checked)}/> Al betaald</label>}
+                      </div>
+                    </div>
+                    <input className="input" value={assignNotes} onChange={e=>setAssignNotes(e.target.value)} placeholder="Notitie (optioneel)"/>
+                    <div style={{display:'flex',gap:'0.5rem'}}>
+                      <button className="btn btn-primary btn-sm" onClick={doAssign}><Check size={13}/> Toewijzen</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setShowAssign(false)}><X size={13}/> Annuleren</button>
+                    </div>
+                  </div>
+                )}
 
-      {/* Balances tab */}
-      {tab === 'balances' && (
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead><tr><th>Lid</th><th>Pakket (id)</th><th>Totaal</th><th>Gebruikt</th><th>Resterend</th><th>Vervalt</th></tr></thead>
-            <tbody>
-              {balances.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Geen actieve saldi</td></tr>}
-              {balances.map((b) => (
-                <tr key={b.id}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{b.first_name} {b.last_name}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{b.email}</div>
-                  </td>
-                  <td style={{ color: 'var(--text-muted)' }}>#{b.package_id}</td>
-                  <td>{b.lessons_total}</td>
-                  <td>{b.lessons_used}</td>
-                  <td><span style={{ fontWeight: 700, color: b.lessons_remaining <= 3 ? 'var(--warning)' : 'var(--success)' }}>{b.lessons_remaining}</span></td>
-                  <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                    {b.expires_at ? new Date(b.expires_at).toLocaleDateString('nl-NL') : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                {/* PT lessen */}
+                {showPtAdd && (
+                  <div style={{marginTop:'0.5rem',padding:'1rem',background:'var(--surface-3)',borderRadius:'var(--r)',display:'flex',flexDirection:'column',gap:'0.6rem'}}>
+                    <h4 style={{margin:0,fontSize:'0.875rem'}}>PT lessen toevoegen</h4>
+                    <div style={{display:'grid',gridTemplateColumns:'100px 1fr',gap:'0.6rem'}}>
+                      <div><label className="input-label">Aantal</label><input className="input" type="number" min="1" value={ptLessons} onChange={e=>setPtLessons(e.target.value)} placeholder="5"/></div>
+                      <div><label className="input-label">Notitie</label><input className="input" value={ptNotes} onChange={e=>setPtNotes(e.target.value)} placeholder="Bijv. inhaalles"/></div>
+                    </div>
+                    <div style={{display:'flex',gap:'0.5rem'}}>
+                      <button className="btn btn-primary btn-sm" onClick={doAddPt}><Check size={13}/> Toevoegen</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setShowPtAdd(false)}><X size={13}/> Annuleren</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Boekingen */}
+              {detail.bookings.length > 0 && (
+                <div className="card">
+                  <h3 style={{marginBottom:'0.75rem'}}>Groepslessen ({detail.bookings.length})</h3>
+                  <div style={{maxHeight:180,overflowY:'auto',display:'flex',flexDirection:'column',gap:2}}>
+                    {detail.bookings.map(b => (
+                      <div key={b.id} style={{display:'flex',justifyContent:'space-between',padding:'0.35rem 0',borderBottom:'1px solid var(--border)',fontSize:'0.8rem'}}>
+                        <span>{b.class_name}</span>
+                        <span style={{color:'var(--text-muted)'}}>{fmtDT(b.date_time)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {detail.pt_sessions.length > 0 && (
+                <div className="card">
+                  <h3 style={{marginBottom:'0.75rem'}}>PT sessies ({detail.pt_sessions.length})</h3>
+                  <div style={{maxHeight:180,overflowY:'auto',display:'flex',flexDirection:'column',gap:2}}>
+                    {detail.pt_sessions.map(p => (
+                      <div key={p.id} style={{display:'flex',justifyContent:'space-between',padding:'0.35rem 0',borderBottom:'1px solid var(--border)',fontSize:'0.8rem'}}>
+                        <span>{p.trainer}</span>
+                        <span style={{color:p.status==='confirmed'?'var(--success)':'var(--text-muted)'}}>{fmtDT(p.date_time)} · {p.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          })()}
         </div>
       )}
     </div>
   )
 }
 
-// ── Main AdminPage ─────────────────────────────────────────────────────────
-const SECTIONS = [
-  { key: 'stats',    label: 'Dashboard',       Icon: BarChart2  },
-  { key: 'members',  label: 'Leden',            Icon: Users      },
-  { key: 'classes',  label: 'Lessen',           Icon: Calendar   },
-  { key: 'bookings', label: 'Boekingen',        Icon: Calendar   },
-  { key: 'payments', label: 'Betalingen',       Icon: CreditCard },
-  { key: 'shop',     label: 'Winkel',           Icon: ShoppingBag },
-  { key: 'pt',       label: 'PT Agenda',        Icon: Zap        },
+// ════════════════════════════════════════════════════════════════════
+// PT AGENDA
+// ════════════════════════════════════════════════════════════════════
+function PTAgendaSection() {
+  const [tab,      setTab]      = useState('pending')
+  const [slots,    setSlots]    = useState([])
+  const [bookings, setBookings] = useState([])
+  const [balances, setBalances] = useState([])
+  const [showNew,  setShowNew]  = useState(false)
+  const [newSlot,  setNewSlot]  = useState({date_time:'',duration_minutes:60,trainer:'Mohammed',notes:''})
+
+  const reload = () => {
+    api.get('/pt/slots?all=1').then(r => setSlots(r.data.slots)).catch(() => {})
+    api.get('/pt/bookings/admin').then(r => setBookings(r.data.bookings)).catch(() => {})
+    api.get('/pt/balance/admin').then(r => setBalances(r.data.balances)).catch(() => {})
+  }
+  useEffect(reload, [])
+
+  const createSlot = async () => {
+    try { await api.post('/pt/slots', newSlot); reload(); setShowNew(false); setNewSlot({date_time:'',duration_minutes:60,trainer:'Mohammed',notes:''}) }
+    catch(e) { alert(e.response?.data?.error || 'Fout') }
+  }
+  const confirm_ = async id => { await api.put(`/pt/bookings/${id}/confirm`); reload() }
+  const decline_ = async id => { await api.put(`/pt/bookings/${id}/decline`); reload() }
+
+  const pending   = bookings.filter(b => b.status === 'pending')
+  const confirmed = bookings.filter(b => b.status === 'confirmed')
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
+        <div className="tab-bar">
+          {[['pending',`Aanvragen (${pending.length})`],['confirmed','Bevestigd'],['slots','Slots'],['balances','Saldo']].map(([k,l]) => (
+            <button key={k} className={`tab-btn${tab===k?' active':''}`} onClick={() => setTab(k)}>{l}</button>
+          ))}
+        </div>
+        {tab==='slots' && (
+          <button className="btn btn-primary btn-sm" onClick={() => setShowNew(s=>!s)}>{showNew?<X size={13}/>:<Plus size={13}/>} Nieuw slot</button>
+        )}
+      </div>
+
+      {tab==='slots' && (
+        <div>
+          {showNew && (
+            <div className="card" style={{marginBottom:'1rem'}}>
+              <h3 style={{marginBottom:'0.75rem'}}>Slot aanmaken</h3>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.75rem'}}>
+                <div><label className="input-label">Datum & tijd</label><input className="input" type="datetime-local" value={newSlot.date_time} onChange={e=>setNewSlot({...newSlot,date_time:e.target.value})}/></div>
+                <div><label className="input-label">Trainer</label><select className="input" value={newSlot.trainer} onChange={e=>setNewSlot({...newSlot,trainer:e.target.value})}>{['Mohammed','Ecrin','Joep'].map(t=><option key={t}>{t}</option>)}</select></div>
+                <div><label className="input-label">Duur (min)</label><input className="input" type="number" value={newSlot.duration_minutes} onChange={e=>setNewSlot({...newSlot,duration_minutes:parseInt(e.target.value)})}/></div>
+                <div><label className="input-label">Notities</label><input className="input" value={newSlot.notes} onChange={e=>setNewSlot({...newSlot,notes:e.target.value})}/></div>
+              </div>
+              <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
+                <button className="btn btn-primary btn-sm" onClick={createSlot}><Check size={13}/> Aanmaken</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowNew(false)}><X size={13}/> Annuleren</button>
+              </div>
+            </div>
+          )}
+          {slots.map(s => (
+            <div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:'0.875rem'}}>{fmtDT(s.date_time)}</div>
+                <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{s.trainer} · {s.duration_minutes}min · {s.status}</div>
+              </div>
+              {s.first_name && <span style={{fontSize:'0.8rem',color:'var(--accent)'}}>→ {s.first_name} {s.last_name}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab==='pending' && (
+        <div>
+          {pending.length === 0 && <p style={{color:'var(--text-muted)'}}>Geen openstaande aanvragen</p>}
+          {pending.map(b => (
+            <div key={b.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.5rem'}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:'0.875rem'}}>{b.first_name} {b.last_name}</div>
+                <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(b.date_time)} · {b.trainer}</div>
+                {b.extra_person ? <div style={{fontSize:'0.75rem',color:'var(--warning)'}}>+ Extra persoon</div> : null}
+              </div>
+              <div style={{display:'flex',gap:'0.5rem'}}>
+                <button className="btn btn-sm" style={{background:'var(--success-dim)',color:'var(--success)'}} onClick={() => confirm_(b.id)}><Check size={13}/> Bevestig</button>
+                <button className="btn btn-danger btn-sm" onClick={() => decline_(b.id)}><X size={13}/> Weiger</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab==='confirmed' && confirmed.map(b => (
+        <div key={b.id} style={{display:'flex',justifyContent:'space-between',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem',fontSize:'0.875rem'}}>
+          <span style={{fontWeight:600}}>{b.first_name} {b.last_name}</span>
+          <span style={{color:'var(--text-muted)'}}>{fmtDT(b.date_time)}</span>
+        </div>
+      ))}
+
+      {tab==='balances' && balances.map(b => (
+        <div key={b.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:'0.875rem'}}>{b.first_name} {b.last_name}</div>
+            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{b.email}</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontWeight:700,color:b.lessons_remaining<=3?'var(--warning)':'var(--success)'}}>{b.lessons_remaining} lessen</div>
+            <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>van {b.lessons_total}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BETALINGSFOUTEN
+// ════════════════════════════════════════════════════════════════════
+function BetalingenSection() {
+  const [failures, setFailures] = useState([])
+  const [loading,  setLoading]  = useState(true)
+
+  useEffect(() => {
+    api.get('/admin/payment-failures').then(r => { setFailures(r.data.failures); setLoading(false) }).catch(() => setLoading(false))
+  }, [])
+
+  const remind   = async id => { try { await api.post(`/admin/payment-failures/${id}/remind`); alert('Herinnering verstuurd.') } catch(e) { alert(e.response?.data?.error) } }
+  const markPaid = async id => { await api.put(`/admin/payment-failures/${id}/paid`); setFailures(f => f.filter(x => x.id!==id)) }
+  const pauseMem = async id => { await api.put(`/admin/payment-failures/${id}/pause`); setFailures(f => f.filter(x => x.id!==id)) }
+
+  if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+
+  return (
+    <div>
+      <h2 style={{marginBottom:'1.5rem'}}>Openstaande Betalingen</h2>
+      {failures.length === 0 && (
+        <div style={{textAlign:'center',padding:'4rem',color:'var(--text-muted)'}}>
+          <p style={{fontSize:'3rem',marginBottom:'0.5rem'}}>✅</p>
+          <p>Geen openstaande betalingen</p>
+        </div>
+      )}
+      {failures.map(f => {
+        const daysOld = Math.floor((Date.now() - new Date(f.created_at)) / 86400000)
+        const total   = Number(f.amount) + Number(f.surcharge_added || 0)
+        return (
+          <div key={f.id} className="card" style={{marginBottom:'0.75rem',borderColor:f.failure_count>=2?'var(--error)':'var(--border)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'0.75rem'}}>
+              <div>
+                <div style={{fontWeight:700}}>{f.first_name} {f.last_name}</div>
+                <div style={{fontSize:'0.85rem',color:'var(--text-muted)'}}>{f.email}</div>
+                {f.description && <div style={{fontSize:'0.8rem',color:'var(--text-2)',marginTop:3}}>{f.description}</div>}
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontWeight:800,fontSize:'1.2rem',color:'var(--error)'}}>{fmtMoney(total)}</div>
+                {f.surcharge_added>0 && <div style={{fontSize:'0.75rem',color:'var(--error)'}}>incl. €{f.surcharge_added} toeslag</div>}
+                <div style={{fontSize:'0.78rem',color:'var(--text-muted)',marginTop:2}}>{f.failure_count}× mislukt · {daysOld}d geleden</div>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:'0.5rem',flexWrap:'wrap'}}>
+              <button className="btn btn-ghost btn-sm" onClick={() => remind(f.id)}><Bell size={13}/> Herinnering</button>
+              <button className="btn btn-sm" style={{background:'var(--success-dim)',color:'var(--success)'}} onClick={() => markPaid(f.id)}><Check size={13}/> Betaald</button>
+              <button className="btn btn-danger btn-sm" onClick={() => pauseMem(f.id)}><PauseCircle size={13}/> Pauzeer lid</button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// COMMUNITY BEHEER
+// ════════════════════════════════════════════════════════════════════
+function CommunityBeheer() {
+  const [posts,   setPosts]   = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.get('/community?limit=50').then(r => { setPosts(r.data.posts); setLoading(false) }).catch(() => setLoading(false))
+  }, [])
+
+  const deletePost  = async id => { if (!confirm('Verwijderen?')) return; await api.delete(`/community/${id}`); setPosts(p => p.filter(x => x.id!==id)) }
+  const togglePin   = async (id, pinned) => { await api.put(`/community/${id}/pin`,{pinned:!pinned}); setPosts(p => p.map(x => x.id===id?{...x,pinned:!pinned}:x)) }
+
+  if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+
+  return (
+    <div>
+      <h2 style={{marginBottom:'1.5rem'}}>Community berichten</h2>
+      {posts.map(p => (
+        <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:600,fontSize:'0.875rem',display:'flex',alignItems:'center',gap:4}}>
+              {p.first_name} {p.last_name}
+              {p.author_role==='admin' && <Crown size={12} style={{color:'var(--accent)'}}/>}
+              {p.pinned && <Pin size={12} style={{color:'var(--accent)'}}/>}
+            </div>
+            {p.title && <div style={{fontWeight:700,color:'var(--text-2)',fontSize:'0.85rem'}}>{p.title}</div>}
+            <div style={{fontSize:'0.8rem',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.body}</div>
+            <div style={{fontSize:'0.75rem',color:'var(--text-muted)',marginTop:2}}>❤ {p.like_count} · 💬 {p.comment_count} · {new Date(p.created_at).toLocaleDateString('nl-NL')}</div>
+          </div>
+          <div style={{display:'flex',gap:'0.25rem',flexShrink:0,marginLeft:'0.75rem'}}>
+            <button className="btn-icon" onClick={() => togglePin(p.id,p.pinned)}><Pin size={13}/></button>
+            <button className="btn-icon" onClick={() => deletePost(p.id)}><Trash2 size={13}/></button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ROOSTER
+// ════════════════════════════════════════════════════════════════════
+function RoosterSection() {
+  const [classes, setClasses] = useState([])
+  const [tab,     setTab]     = useState('upcoming')
+  const [showNew, setShowNew] = useState(false)
+  const [form,    setForm]    = useState({name:'',instructor:'Mohammed',category:'kickboksen-recreanten',date_time:'',duration_minutes:60,max_capacity:18,location:'Zaal A'})
+
+  useEffect(() => { api.get('/admin/classes').then(r => setClasses(r.data.classes)).catch(() => {}) }, [])
+
+  const CATS = ['kickboksen-kids','kickboksen-recreanten','kickboksen-ladies-only','kickboksen-jeugd','boksen-recreanten','boksen-ladies-only','jeugd']
+  const upcoming = classes.filter(c => new Date(c.date_time) > new Date() && c.status==='scheduled')
+  const past     = classes.filter(c => new Date(c.date_time) <= new Date() || c.status!=='scheduled')
+
+  const createClass = async () => {
+    try {
+      const r = await api.post('/admin/classes', form)
+      setClasses(c => [r.data.class,...c]); setShowNew(false)
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+  const cancelClass = async id => {
+    if (!confirm('Les annuleren?')) return
+    await api.delete(`/admin/classes/${id}`)
+    setClasses(c => c.map(x => x.id===id?{...x,status:'cancelled'}:x))
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+        <div className="tab-bar">
+          <button className={`tab-btn${tab==='upcoming'?' active':''}`} onClick={() => setTab('upcoming')}>Aankomend ({upcoming.length})</button>
+          <button className={`tab-btn${tab==='past'?' active':''}`} onClick={() => setTab('past')}>Verleden</button>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowNew(s=>!s)}>{showNew?<X size={13}/>:<Plus size={13}/>} Nieuwe les</button>
+      </div>
+      {showNew && (
+        <div className="card" style={{marginBottom:'1rem'}}>
+          <h3 style={{marginBottom:'0.75rem'}}>Nieuwe les</h3>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.75rem'}}>
+            <div><label className="input-label">Naam</label><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
+            <div><label className="input-label">Categorie</label><select className="input" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+            <div><label className="input-label">Trainer</label><select className="input" value={form.instructor} onChange={e=>setForm({...form,instructor:e.target.value})}>{['Mohammed','Ecrin','Joep'].map(t=><option key={t}>{t}</option>)}</select></div>
+            <div><label className="input-label">Datum & tijd</label><input className="input" type="datetime-local" value={form.date_time} onChange={e=>setForm({...form,date_time:e.target.value})}/></div>
+            <div><label className="input-label">Max deelnemers</label><input className="input" type="number" value={form.max_capacity} onChange={e=>setForm({...form,max_capacity:parseInt(e.target.value)})}/></div>
+            <div><label className="input-label">Locatie</label><input className="input" value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></div>
+          </div>
+          <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
+            <button className="btn btn-primary btn-sm" onClick={createClass}><Check size={13}/> Aanmaken</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowNew(false)}><X size={13}/> Annuleren</button>
+          </div>
+        </div>
+      )}
+      {(tab==='upcoming'?upcoming:past).map(c => (
+        <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:'0.875rem'}}>{c.name}</div>
+            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(c.date_time)} · {c.instructor} · {c.confirmed_bookings}/{c.max_capacity}</div>
+          </div>
+          {c.status==='scheduled' ? (
+            <button className="btn btn-danger btn-sm" onClick={() => cancelClass(c.id)}><X size={13}/></button>
+          ) : <span style={{fontSize:'0.75rem',color:'var(--error)'}}>Geannuleerd</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BETALINGEN OVERVIEW
+// ════════════════════════════════════════════════════════════════════
+function BetalingOverview() {
+  const [payments, setPayments] = useState([])
+  useEffect(() => { api.get('/admin/payments').then(r => setPayments(r.data.payments)).catch(() => {}) }, [])
+  return (
+    <div>
+      <h2 style={{marginBottom:'1.5rem'}}>Alle betalingen</h2>
+      {payments.map(p => (
+        <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:'0.875rem'}}>{p.first_name} {p.last_name}</div>
+            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{p.description||p.membership_name}</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontWeight:700,color:p.status==='paid'?'var(--success)':'var(--warning)'}}>{fmtMoney(p.amount)}</div>
+            <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>{fmtDate(p.created_at)}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// HOOFD COMPONENT
+// ════════════════════════════════════════════════════════════════════
+const MENU = [
+  { key:'dashboard',  label:'Dashboard',       Icon:LayoutDashboard },
+  { key:'leden',      label:'Leden',            Icon:Users           },
+  { key:'pt',         label:'PT Agenda',         Icon:Zap             },
+  { key:'betalingen', label:'Betalingsfouten',   Icon:AlertTriangle   },
+  { key:'community',  label:'Community',         Icon:Users2          },
+  { key:'rooster',    label:'Rooster',           Icon:Calendar        },
+  { key:'payments',   label:'Betalingen',        Icon:CreditCard      },
 ]
 
 export default function AdminPage() {
-  const { user } = useAuth()
-  const [section, setSection] = useState('stats')
-  const [stats, setStats]     = useState(null)
-
-  useEffect(() => {
-    api.get('/admin/stats').then((r) => setStats(r.data.stats)).catch(() => {})
-  }, [])
-
-  // Non-admin guard (belt dubbele check op frontend)
-  if (user?.role !== 'admin') {
-    return (
-      <div className="page">
-        <div className="empty-state" style={{ paddingTop: '5rem' }}>
-          <div className="empty-state-icon">🔒</div>
-          <h3>Geen toegang</h3>
-          <p>Je hebt admin rechten nodig om deze pagina te bekijken.</p>
-        </div>
-      </div>
-    )
-  }
+  const [section, setSection] = useState('dashboard')
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Crown size={24} style={{ color: 'var(--accent)' }} />
-          <div>
-            <h1>Admin Panel</h1>
-            <p>Beheer leden, lessen, betalingen en de winkel</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="admin-layout">
-        {/* Sidebar */}
-        <div className="admin-sidebar">
-          {SECTIONS.map(({ key, label, Icon }) => (
-            <button
-              key={key}
-              className={`admin-sidebar-btn${section === key ? ' active' : ''}`}
-              onClick={() => setSection(key)}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div className="admin-content">
-          <h2 style={{ marginBottom: '1.5rem' }}>
-            {SECTIONS.find((s) => s.key === section)?.label}
-          </h2>
-          {section === 'stats'    && <StatsSection stats={stats} />}
-          {section === 'members'  && <MembersSection />}
-          {section === 'classes'  && <ClassesSection />}
-          {section === 'bookings' && <BookingsSection />}
-          {section === 'payments' && <PaymentsSection />}
-          {section === 'shop'     && <ShopAdminSection />}
-          {section === 'pt'       && <PTAgendaSection />}
-        </div>
-      </div>
+    <div className="admin-page">
+      <aside className="admin-sidebar">
+        <div className="admin-sidebar-title">Admin</div>
+        {MENU.map(({ key, label, Icon }) => (
+          <button key={key} className={`admin-menu-item${section===key?' active':''}`} onClick={() => setSection(key)}>
+            <Icon size={15}/> {label}
+          </button>
+        ))}
+      </aside>
+      <main className="admin-content">
+        {section==='dashboard'  && <DashboardSection/>}
+        {section==='leden'      && <LedenSection/>}
+        {section==='pt'         && <PTAgendaSection/>}
+        {section==='betalingen' && <BetalingenSection/>}
+        {section==='community'  && <CommunityBeheer/>}
+        {section==='rooster'    && <RoosterSection/>}
+        {section==='payments'   && <BetalingOverview/>}
+      </main>
     </div>
   )
 }

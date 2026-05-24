@@ -309,7 +309,13 @@ async function sendPtLowBalanceEmail({ to, firstName, remaining }) {
   await sendMail({ to, subject: `MHGym — Nog ${remaining} PT les${remaining > 1 ? 'sen' : ''} over`, html });
 }
 
+// Generic sendEmail wrapper for admin controller
+async function sendEmail({ to, subject, html }) {
+  return sendMail({ to, subject, html });
+}
+
 module.exports = {
   sendWelcomeEmail, sendMembershipConfirmation, sendOrderConfirmation,
   sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail,
+  sendEmail,
 };
