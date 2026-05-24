@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="35" fill="#000000"/>
+  <rect width="192" height="192" rx="35" fill="url(#grad)" opacity="0.15"/>
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F5C200;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#000000;stop-opacity:1"/>
+    </linearGradient>
+  </defs>
+  <text
+    x="96" y="100"
+    text-anchor="middle" dominant-baseline="middle"
+    font-family="Arial,sans-serif" font-weight="900"
+    font-size="69" fill="#F5C200" letter-spacing="2">MH</text>
+  <text
+    x="96" y="142"
+    text-anchor="middle" dominant-baseline="middle"
+    font-family="Arial,sans-serif" font-weight="900"
+    font-size="42" fill="#ffffff" letter-spacing="4">GYM</text>
+</svg>

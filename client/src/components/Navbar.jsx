@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut, ShoppingBag, Shield } from 'lucide-react'
+import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut, ShoppingBag, Shield, Zap } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Navbar() {
@@ -19,8 +19,9 @@ export default function Navbar() {
     { to: '/dashboard',   label: 'Dashboard',    Icon: LayoutDashboard },
     { to: '/schedule',    label: 'Lessen',        Icon: Calendar        },
     { to: '/memberships', label: 'Lidmaatschap',  Icon: CreditCard      },
-    { to: '/shop',        label: 'Winkel',         Icon: ShoppingBag     },
-    { to: '/profile',     label: 'Profiel',        Icon: UserCircle      },
+    { to: '/shop',              label: 'Winkel',            Icon: ShoppingBag     },
+    { to: '/personal-training', label: 'Personal Training', Icon: Zap             },
+    { to: '/profile',           label: 'Profiel',           Icon: UserCircle      },
     ...(user?.role === 'admin'
       ? [{ to: '/admin', label: 'Admin', Icon: Shield }]
       : []),

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Save, Key, Calendar, MapPin, Clock, Check, AlertCircle, X, Shield } from 'lucide-react'
+import { Save, Key, Calendar, Check, AlertCircle, X, Shield, Zap, Bell } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { subscribeToPush } from '../main'
 import api from '../api'
 
 function fmtDate(str) {
@@ -26,8 +27,10 @@ const STATUS_BADGE = {
 export default function ProfilePage() {
   const { user, membership, refreshUser } = useAuth()
 
-  const [bookings, setBookings] = useState([])
-  const [loading, setLoading]   = useState(true)
+  const [bookings,  setBookings]  = useState([])
+  const [ptBalance, setPtBalance] = useState(null)
+  const [loading,   setLoading]   = useState(true)
+  const [pushStatus, setPushStatus] = useState('idle') // idle | requesting | granted | denied
 
   // Profile form — includes all new fields
   const [profile, setProfile] = useState({
@@ -54,8 +57,13 @@ export default function ProfilePage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [, bookingsRes] = await Promise.all([refreshUser(), api.get('/bookings')])
+        const [, bookingsRes, ptRes] = await Promise.all([
+          refreshUser(),
+          api.get('/bookings'),
+          api.get('/pt/balance').catch(() => ({ data: null })),
+        ])
         setBookings(bookingsRes.data.bookings)
+        if (ptRes.data) setPtBalance(ptRes.data)
       } catch (e) {
         console.error(e)
       } finally {
@@ -291,6 +299,73 @@ export default function ProfilePage() {
                 <div style={{ marginBottom: '0.75rem' }}>Geen actief lidmaatschap</div>
                 <a href="/memberships" className="btn btn-primary btn-sm">Kies een abonnement</a>
               </div>
+            )}
+          </div>
+
+          {/* PT Balance card */}
+          {ptBalance && (ptBalance.total_remaining > 0 || ptBalance.subscription) && (
+            <div className="card">
+              <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Zap size={16} style={{ color: 'var(--accent)' }} /> Personal Training
+              </h3>
+              {ptBalance.total_remaining > 0 && (
+                <Row label="Lessen resterend">
+                  <span style={{ fontWeight: 700, color: ptBalance.total_remaining <= 3 ? 'var(--warning)' : 'var(--success)', fontSize: '1.1rem' }}>
+                    {ptBalance.total_remaining}
+                  </span>
+                </Row>
+              )}
+              {ptBalance.subscription && (
+                <>
+                  <Row label="PT Abonnement">
+                    <span className={`badge ${ptBalance.subscription.status === 'active' ? 'badge-success' : 'badge-warning'}`}>
+                      {ptBalance.subscription.status === 'active' ? 'Actief' : 'Opgezegd'}
+                    </span>
+                  </Row>
+                  <Row label="Frequentie">{ptBalance.subscription.freq_per_week}× per week</Row>
+                  <Row label="Maandbedrag">€{Number(ptBalance.subscription.price_monthly).toFixed(2)}/mnd</Row>
+                </>
+              )}
+              <div style={{ marginTop: '0.75rem' }}>
+                <a href="/personal-training" className="btn btn-outline btn-full btn-sm">
+                  Sessie boeken →
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Push notifications */}
+          <div className="card">
+            <h3 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Bell size={16} style={{ color: 'var(--accent)' }} /> Push notificaties
+            </h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.5 }}>
+              Ontvang meldingen voor PT-sessies, bevestigingen en herinneringen.
+            </p>
+            {pushStatus === 'granted' ? (
+              <div className="alert alert-success"><Check size={14} /> Push notificaties ingeschakeld!</div>
+            ) : pushStatus === 'denied' ? (
+              <div className="alert alert-error"><AlertCircle size={14} /> Notificaties geblokkeerd in browser.</div>
+            ) : (
+              <button
+                className="btn btn-outline btn-full btn-sm"
+                disabled={pushStatus === 'requesting'}
+                onClick={async () => {
+                  setPushStatus('requesting')
+                  const perm = await Notification.requestPermission()
+                  if (perm === 'granted') {
+                    await subscribeToPush(api)
+                    setPushStatus('granted')
+                  } else {
+                    setPushStatus('denied')
+                  }
+                }}
+              >
+                {pushStatus === 'requesting'
+                  ? <><span className="spinner spinner-sm" /> Activeren…</>
+                  : <><Bell size={14} /> Notificaties inschakelen</>
+                }
+              </button>
             )}
           </div>
 

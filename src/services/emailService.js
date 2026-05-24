@@ -194,4 +194,122 @@ async function sendOrderConfirmation({ to, firstName, orderId, items, totalAmoun
   await sendMail({ to, subject: `MHGym — bestelling #${orderId} bevestigd`, html });
 }
 
-module.exports = { sendWelcomeEmail, sendMembershipConfirmation, sendOrderConfirmation };
+/**
+ * PT sessie bevestigingsmail (na admin confirm)
+ */
+async function sendPtConfirmationEmail({ to, firstName, dateTime }) {
+  const fmt = (d) => new Date(d).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const fmtTime = (d) => new Date(d).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">PT Sessie Bevestigd! 💪</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je personal training sessie is bevestigd.</p>
+
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Datum</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${fmt(dateTime)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Tijd</td>
+                <td style="color:#F5C200;font-weight:700;text-align:right">${fmtTime(dateTime)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Duur</td>
+                <td style="color:#fff;text-align:right">60 minuten</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Trainer</td>
+                <td style="color:#fff;text-align:right">Mohammed</td></tr>
+          </table>
+        </div>
+
+        <div style="background:#0f1a00;border:1px solid #2a4a00;border-radius:8px;padding:16px;margin:16px 0">
+          <p style="color:#86efac;margin:0;font-size:13px;line-height:1.6">
+            <strong>Annuleren?</strong> Dat kan tot 24 uur van tevoren via de app. Bij annulering binnen 24 uur vervalt de les.
+          </p>
+        </div>
+
+        <div style="margin:24px 0;text-align:center">
+          <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/personal-training"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Bekijk mijn PT boekingen
+          </a>
+        </div>
+        <p style="color:#666;font-size:13px">Tot dan! 🥊<br>Vragen? <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a></p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: 'MHGym — PT sessie bevestigd!', html });
+}
+
+/**
+ * PT pakket bevestigingsmail (na betaling)
+ */
+async function sendPtPackageConfirmationEmail({ to, firstName, packageLabel, lessons, expiresAt }) {
+  const fmt = (d) => new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">PT Pakket Gekocht! 🥊</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je PT-pakket is betaald en actief.</p>
+
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Pakket</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${packageLabel}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Lessen</td>
+                <td style="color:#F5C200;font-weight:700;text-align:right">${lessons} lessen</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Geldig tot</td>
+                <td style="color:#fff;text-align:right">${fmt(expiresAt)}</td></tr>
+          </table>
+        </div>
+
+        <p style="color:#ccc;font-size:13px;line-height:1.6">
+          Boek je eerste sessie via de app zodra een slot beschikbaar is.
+          Je lessen verlopen 12 maanden na aankoop.
+        </p>
+
+        <div style="margin:24px 0;text-align:center">
+          <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/personal-training"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Boek een sessie
+          </a>
+        </div>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — PT pakket ${packageLabel} actief`, html });
+}
+
+/**
+ * PT saldo bijna op (3 of minder lessen)
+ */
+async function sendPtLowBalanceEmail({ to, firstName, remaining }) {
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">Bijna door je lessen heen ⚠️</h2>
+        <p style="color:#ccc;line-height:1.6">
+          Hoi ${firstName}, je hebt nog <strong style="color:#F5C200">${remaining} les${remaining > 1 ? 'sen' : ''}</strong> over.
+        </p>
+        <p style="color:#ccc;line-height:1.6">Koop een nieuw pakket zodat je kunt blijven trainen!</p>
+        <div style="margin:24px 0;text-align:center">
+          <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/personal-training"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Nieuw pakket kopen
+          </a>
+        </div>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — Nog ${remaining} PT les${remaining > 1 ? 'sen' : ''} over`, html });
+}
+
+module.exports = {
+  sendWelcomeEmail, sendMembershipConfirmation, sendOrderConfirmation,
+  sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail,
+};

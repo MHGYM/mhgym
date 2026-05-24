@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Users, Calendar, CreditCard, BarChart2, Package, ShoppingBag,
-  Plus, Edit2, Trash2, X, Check, AlertCircle, RefreshCw, Crown,
+  Plus, Edit2, Trash2, X, Check, AlertCircle, RefreshCw, Crown, Zap,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
@@ -529,14 +529,239 @@ function ShopAdminSection() {
   )
 }
 
+// ── PT Agenda section ──────────────────────────────────────────────────────
+function PTAgendaSection() {
+  const [slots,     setSlots]     = useState([])
+  const [bookings,  setBookings]  = useState([])
+  const [balances,  setBalances]  = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [tab,       setTab]       = useState('slots')
+  const [showModal, setShowModal] = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [error,     setError]     = useState('')
+  const [form, setForm] = useState({ date_time: '', duration_minutes: 60, trainer: 'Mohammed', notes: '' })
+
+  const load = () => {
+    setLoading(true)
+    const from = new Date().toISOString()
+    const to   = new Date(Date.now() + 30 * 86400000).toISOString()
+    Promise.all([
+      api.get('/pt/slots', { params: { from, to, all: 1 } }),
+      api.get('/pt/bookings/admin'),
+      api.get('/pt/balance/admin'),
+    ]).then(([s, b, bal]) => {
+      setSlots(s.data.slots)
+      setBookings(b.data.bookings)
+      setBalances(bal.data.balances)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const createSlot = async () => {
+    setSaving(true); setError('')
+    try {
+      await api.post('/pt/slots', form)
+      setShowModal(false)
+      setForm({ date_time: '', duration_minutes: 60, trainer: 'Mohammed', notes: '' })
+      load()
+    } catch (e) { setError(e.response?.data?.error || 'Opslaan mislukt.') }
+    finally { setSaving(false) }
+  }
+
+  const deleteSlot = async (id) => {
+    if (!confirm('Slot verwijderen?')) return
+    await api.delete(`/pt/slots/${id}`)
+    load()
+  }
+
+  const confirmBooking = async (id) => {
+    await api.put(`/pt/bookings/${id}/confirm`); load()
+  }
+  const declineBooking = async (id) => {
+    if (!confirm('Boeking afwijzen?')) return
+    await api.put(`/pt/bookings/${id}/decline`); load()
+  }
+
+  const statusBadge = (s) => ({
+    pending:   <span className="badge badge-warning">Wacht</span>,
+    confirmed: <span className="badge badge-success">Bevestigd</span>,
+    cancelled: <span className="badge badge-muted">Geannuleerd</span>,
+    declined:  <span className="badge badge-error">Afgewezen</span>,
+    completed: <span className="badge badge-info">Voltooid</span>,
+  }[s] ?? <span className="badge badge-muted">{s}</span>)
+
+  if (loading) return <div className="loading-center"><div className="spinner" /></div>
+
+  return (
+    <div>
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+        {[
+          { id: 'slots',    label: `📅 Slots (${slots.length})`        },
+          { id: 'bookings', label: `📋 Boekingen (${bookings.length})` },
+          { id: 'balances', label: `💪 Saldi (${balances.length})`      },
+        ].map(({ id, label }) => (
+          <button key={id} onClick={() => setTab(id)} className={`filter-btn${tab === id ? ' active' : ''}`}>{label}</button>
+        ))}
+        <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowModal(true)}>
+          <Plus size={14} /> Nieuw slot
+        </button>
+      </div>
+
+      {/* Slot aanmaken modal */}
+      {showModal && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowModal(false)}>
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <div className="modal-header">
+              <h3>PT Slot aanmaken</h3>
+              <button className="btn-icon" onClick={() => setShowModal(false)}><X size={18} /></button>
+            </div>
+            {error && <div className="alert alert-error" style={{ marginTop: '0.75rem' }}><AlertCircle size={14} />{error}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">Datum & tijd *</label>
+                <input className="form-input" type="datetime-local" value={form.date_time}
+                  onChange={(e) => setForm((f) => ({ ...f, date_time: e.target.value }))} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Duur (minuten)</label>
+                  <input className="form-input" type="number" value={form.duration_minutes}
+                    onChange={(e) => setForm((f) => ({ ...f, duration_minutes: parseInt(e.target.value) }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Trainer</label>
+                  <input className="form-input" value={form.trainer}
+                    onChange={(e) => setForm((f) => ({ ...f, trainer: e.target.value }))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notities</label>
+                <input className="form-input" value={form.notes} placeholder="Optioneel..."
+                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button className="btn btn-ghost btn-full" onClick={() => setShowModal(false)}>Annuleren</button>
+                <button className="btn btn-primary btn-full" onClick={createSlot} disabled={saving || !form.date_time}>
+                  {saving ? <span className="spinner spinner-sm" /> : 'Slot aanmaken'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Slots tab */}
+      {tab === 'slots' && (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Datum & tijd</th><th>Trainer</th><th>Status</th><th>Notities</th><th>Acties</th></tr></thead>
+            <tbody>
+              {slots.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Geen slots</td></tr>}
+              {slots.map((s) => (
+                <tr key={s.id}>
+                  <td style={{ fontWeight: 600 }}>
+                    {new Date(s.date_time).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })}{' '}
+                    {new Date(s.date_time).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                  <td>{s.trainer}</td>
+                  <td>
+                    {s.status === 'available' ? <span className="badge badge-success">Vrij</span>
+                     : s.status === 'booked'  ? <span className="badge badge-warning">Geboekt</span>
+                     : <span className="badge badge-muted">Geannuleerd</span>}
+                  </td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>{s.notes || '—'}</td>
+                  <td>
+                    <button className="btn btn-ghost btn-sm" onClick={() => deleteSlot(s.id)} style={{ color: 'var(--error)' }}>
+                      <Trash2 size={13} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Bookings tab */}
+      {tab === 'bookings' && (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Lid</th><th>Datum sessie</th><th>Status</th><th>Extra</th><th>Acties</th></tr></thead>
+            <tbody>
+              {bookings.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Geen boekingen</td></tr>}
+              {bookings.map((b) => (
+                <tr key={b.id}>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{b.first_name} {b.last_name}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{b.email}</div>
+                  </td>
+                  <td>
+                    {new Date(b.date_time).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })}{' '}
+                    {new Date(b.date_time).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                  <td>{statusBadge(b.status)}</td>
+                  <td>{b.extra_person ? <span className="badge badge-warning">+persoon</span> : '—'}</td>
+                  <td>
+                    {b.status === 'pending' && (
+                      <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <button className="btn btn-primary btn-sm" onClick={() => confirmBooking(b.id)}>
+                          <Check size={13} /> OK
+                        </button>
+                        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => declineBooking(b.id)}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Balances tab */}
+      {tab === 'balances' && (
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Lid</th><th>Pakket (id)</th><th>Totaal</th><th>Gebruikt</th><th>Resterend</th><th>Vervalt</th></tr></thead>
+            <tbody>
+              {balances.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>Geen actieve saldi</td></tr>}
+              {balances.map((b) => (
+                <tr key={b.id}>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{b.first_name} {b.last_name}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{b.email}</div>
+                  </td>
+                  <td style={{ color: 'var(--text-muted)' }}>#{b.package_id}</td>
+                  <td>{b.lessons_total}</td>
+                  <td>{b.lessons_used}</td>
+                  <td><span style={{ fontWeight: 700, color: b.lessons_remaining <= 3 ? 'var(--warning)' : 'var(--success)' }}>{b.lessons_remaining}</span></td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                    {b.expires_at ? new Date(b.expires_at).toLocaleDateString('nl-NL') : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main AdminPage ─────────────────────────────────────────────────────────
 const SECTIONS = [
-  { key: 'stats',    label: 'Dashboard',   Icon: BarChart2  },
-  { key: 'members',  label: 'Leden',        Icon: Users      },
-  { key: 'classes',  label: 'Lessen',       Icon: Calendar   },
-  { key: 'bookings', label: 'Boekingen',    Icon: Calendar   },
-  { key: 'payments', label: 'Betalingen',   Icon: CreditCard },
-  { key: 'shop',     label: 'Winkel',       Icon: ShoppingBag },
+  { key: 'stats',    label: 'Dashboard',       Icon: BarChart2  },
+  { key: 'members',  label: 'Leden',            Icon: Users      },
+  { key: 'classes',  label: 'Lessen',           Icon: Calendar   },
+  { key: 'bookings', label: 'Boekingen',        Icon: Calendar   },
+  { key: 'payments', label: 'Betalingen',       Icon: CreditCard },
+  { key: 'shop',     label: 'Winkel',           Icon: ShoppingBag },
+  { key: 'pt',       label: 'PT Agenda',        Icon: Zap        },
 ]
 
 export default function AdminPage() {
@@ -599,6 +824,7 @@ export default function AdminPage() {
           {section === 'bookings' && <BookingsSection />}
           {section === 'payments' && <PaymentsSection />}
           {section === 'shop'     && <ShopAdminSection />}
+          {section === 'pt'       && <PTAgendaSection />}
         </div>
       </div>
     </div>

@@ -26,6 +26,7 @@ app.use('/api/memberships', require('./routes/memberships'));
 app.use('/api/payments',    require('./routes/payments'));
 app.use('/api/shop',        require('./routes/shop'));
 app.use('/api/admin',       require('./routes/admin'));
+app.use('/api/pt',          require('./routes/pt'));
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() }));

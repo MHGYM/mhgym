@@ -1,6 +1,7 @@
 const mollieClient = require('../config/mollie');
 const db = require('../config/database');
-const { sendMembershipConfirmation, sendOrderConfirmation } = require('../services/emailService');
+const { sendMembershipConfirmation, sendOrderConfirmation, sendPtPackageConfirmationEmail } = require('../services/emailService');
+const { PT_PACKAGES, PT_PLANS, sendPush } = require('./ptController');
 
 // ── Hulpfuncties ─────────────────────────────────────────────────────────────
 
@@ -284,6 +285,80 @@ const webhook = async (req, res) => {
           totalAmount: localPayment.amount,
         }).catch((e) => console.error('[Email] Fout:', e.message));
       }
+    }
+  }
+
+  // ── PT pakket betaald ─────────────────────────────────────────────────────
+  if (
+    molliePayment.status === 'paid' &&
+    localPayment.status !== 'paid' &&
+    (meta.type === 'pt_package' || localPayment.type === 'pt_package')
+  ) {
+    const packageId = parseInt(meta.package_id || 0);
+    const pkg       = PT_PACKAGES.find((p) => p.id === packageId);
+    if (pkg) {
+      const expiresAt = new Date();
+      expiresAt.setFullYear(expiresAt.getFullYear() + 1); // 12 maanden geldig
+
+      await db.execute({
+        sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, mollie_payment_id, amount, status, expires_at)
+              VALUES (?, ?, ?, ?, ?, ?, 'paid', ?)`,
+        args: [userId, pkg.id, pkg.lessons, pkg.lessons, molliePaymentId, molliePayment.amount?.value || pkg.total_price, expiresAt.toISOString().split('T')[0]],
+      });
+
+      const uRes = await db.execute({ sql: 'SELECT * FROM users WHERE id = ?', args: [userId] });
+      if (uRes.rows[0]) {
+        sendPtPackageConfirmationEmail({
+          to: uRes.rows[0].email, firstName: uRes.rows[0].first_name,
+          packageLabel: pkg.label, lessons: pkg.lessons, expiresAt: expiresAt.toISOString().split('T')[0],
+        }).catch((e) => console.error('[Email] PT pakket:', e.message));
+        sendPush(userId, `PT pakket gekocht! 🥊`, `Je ${pkg.label} zijn klaar voor gebruik. Boek je eerste sessie!`);
+      }
+      console.log(`[PT] Pakket ${pkg.label} geactiveerd voor user ${userId}`);
+    }
+  }
+
+  // ── PT abonnement eerste betaling ────────────────────────────────────────
+  if (
+    molliePayment.status === 'paid' &&
+    localPayment.status !== 'paid' &&
+    (meta.type === 'pt_subscription_first' || localPayment.type === 'pt_subscription')
+  ) {
+    const planId = parseInt(meta.plan_id || 0);
+    const plan   = PT_PLANS.find((p) => p.id === planId);
+    if (plan) {
+      const startDate   = new Date();
+      const contractEnd = new Date(startDate);
+      contractEnd.setMonth(contractEnd.getMonth() + 6);
+      const nextBillingDate = new Date(startDate);
+      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+
+      const customerId = molliePayment.customerId || (await db.execute({ sql: 'SELECT mollie_customer_id FROM users WHERE id = ?', args: [userId] })).rows[0]?.mollie_customer_id;
+      let subscriptionId = null;
+
+      if (customerId) {
+        try {
+          const sub = await mollieClient.subscriptions.create({
+            customerId,
+            amount: { currency: 'EUR', value: Number(plan.price_monthly).toFixed(2) },
+            interval: '1 month',
+            startDate: nextBillingDate.toISOString().split('T')[0],
+            description: `MHGym PT ${plan.label} — maandelijks`,
+            webhookUrl: process.env.MOLLIE_WEBHOOK_URL,
+            metadata: { type: 'pt_subscription_payment', user_id: String(userId), plan_id: String(plan.id) },
+          });
+          subscriptionId = sub.id;
+        } catch (e) { console.error('[Mollie] PT subscription aanmaken mislukt:', e.message); }
+      }
+
+      await db.execute({
+        sql: `INSERT INTO pt_subscriptions (user_id, freq_per_week, price_per_lesson, price_monthly, status, mollie_subscription_id, start_date, contract_end, minimum_months, agreed_to_terms)
+              VALUES (?, ?, ?, ?, 'active', ?, ?, ?, 6, 1)`,
+        args: [userId, plan.freq_per_week, plan.price_per_lesson, plan.price_monthly, subscriptionId, startDate.toISOString().split('T')[0], contractEnd.toISOString().split('T')[0]],
+      });
+
+      sendPush(userId, 'PT Abonnement actief! 💪', `Je ${plan.label} PT-abonnement is geactiveerd. Boek je eerste sessie!`);
+      console.log(`[PT] Abonnement ${plan.label} geactiveerd voor user ${userId}`);
     }
   }
 
