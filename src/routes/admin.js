@@ -32,7 +32,10 @@ router.get('/payments', ctrl.adminListPayments);
 
 // ── Betalingsfouten ────────────────────────────────────────────────────────────
 router.get('/payment-failures',                      ctrl.getPaymentFailures);
+router.get('/payment-failures/:id',                  ctrl.getPaymentDetail);
 router.post('/payment-failures/:id/remind',          ctrl.sendPaymentReminder);
+router.post('/payment-failures/:id/paylink',         ctrl.sendPayLink);
+router.post('/payment-failures/auto-remind',         ctrl.processAutoReminders);
 router.put('/payment-failures/:id/paid',             ctrl.markPaymentPaid);
 router.put('/payment-failures/:id/pause',            ctrl.pauseMembershipFromFailure);
 

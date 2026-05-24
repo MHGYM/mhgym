@@ -2,9 +2,9 @@
  * Agenda controller — haalt alle agenda-items op voor de weekweergave
  *
  * GET /api/agenda?from=YYYY-MM-DD&to=YYYY-MM-DD
- *   Geeft groepslessen, PT boekingen, vrij-trainen boekingen terug
- *   Admin: ziet alles van alle leden
- *   Lid:   ziet groepslessen + eigen boekingen + VT beschikbaarheid
+ *   Geeft groepslessen, PT boekingen, VT slots + boekingen terug
+ *   Admin: ziet alles van alle leden, alle VT slots met bookings
+ *   Lid:   ziet groepslessen + eigen boekingen + beschikbare VT slots met eigen status
  */
 const db = require('../config/database');
 
@@ -51,31 +51,86 @@ const getAgenda = async (req, res) => {
 
   const ptRes = await db.execute({ sql: ptSql, args: ptArgs });
 
-  // ── Vrij trainen boekingen ──────────────────────────────────────────────────
-  const vtSql = isAdmin
-    ? `SELECT vb.*, u.first_name, u.last_name, u.email
-       FROM vrij_trainen_bookings vb
-       JOIN users u ON u.id = vb.user_id
-       WHERE vb.date >= ? AND vb.date <= ?
-         AND vb.status = 'confirmed'
-       ORDER BY vb.date, vb.start_time`
-    : `SELECT vb.*
-       FROM vrij_trainen_bookings vb
-       WHERE vb.user_id = ?
-         AND vb.date >= ? AND vb.date <= ?
-         AND vb.status = 'confirmed'
-       ORDER BY vb.date, vb.start_time`;
+  // ── PT beschikbare slots (admin aangemaakt, nog niet geboekt) ───────────────
+  const ptAvailableSql = isAdmin
+    ? `SELECT ps.*, 'available' AS booking_status,
+              NULL AS user_first_name, NULL AS user_last_name
+       FROM pt_slots ps
+       WHERE ps.status = 'available'
+         AND NOT EXISTS (SELECT 1 FROM pt_bookings pb WHERE pb.slot_id = ps.id AND pb.status NOT IN ('cancelled','declined'))
+         AND ps.date_time >= ? AND ps.date_time < ?
+       ORDER BY ps.date_time`
+    : null; // leden zien geen beschikbare PT slots (ze boeken via PT pagina)
 
-  const vtArgs = isAdmin
-    ? [from, to]
-    : [userId, from, to];
+  let ptAvailableRows = [];
+  if (isAdmin) {
+    const r = await db.execute({ sql: ptAvailableSql, args: [from + 'T00:00:00', to + 'T23:59:59'] });
+    ptAvailableRows = r.rows;
+  }
 
-  const vtRes = await db.execute({ sql: vtSql, args: vtArgs });
+  // ── VT slots ────────────────────────────────────────────────────────────────
+  let vtSlots = [];
+
+  if (isAdmin) {
+    // Admin ziet alle slots met al hun boekingen
+    const slotRes = await db.execute({
+      sql: `SELECT s.*,
+                   (SELECT COUNT(*) FROM vrij_trainen_bookings b WHERE b.slot_id = s.id AND b.status IN ('requested','confirmed')) AS booking_count,
+                   (SELECT COUNT(*) FROM vrij_trainen_bookings b WHERE b.slot_id = s.id AND b.status = 'requested') AS pending_count,
+                   (SELECT COUNT(*) FROM vrij_trainen_bookings b WHERE b.slot_id = s.id AND b.status = 'confirmed') AS confirmed_count
+            FROM vt_slots s
+            WHERE s.date >= ? AND s.date <= ?
+            ORDER BY s.date, s.start_time`,
+      args: [from, to],
+    });
+
+    if (slotRes.rows.length > 0) {
+      const slotIds = slotRes.rows.map(s => s.id);
+      const bookings = await db.execute({
+        sql: `SELECT vb.*, u.first_name, u.last_name
+              FROM vrij_trainen_bookings vb
+              JOIN users u ON u.id = vb.user_id
+              WHERE vb.slot_id IN (${slotIds.map(() => '?').join(',')})
+                AND vb.status IN ('requested','confirmed')
+              ORDER BY vb.status DESC, vb.created_at`,
+        args: slotIds,
+      });
+
+      const bySlot = {};
+      bookings.rows.forEach(b => {
+        if (!bySlot[b.slot_id]) bySlot[b.slot_id] = [];
+        bySlot[b.slot_id].push(b);
+      });
+
+      vtSlots = slotRes.rows.map(s => ({
+        ...s,
+        bookings: bySlot[s.id] || [],
+        type: 'vt_slot',
+      }));
+    } else {
+      vtSlots = [];
+    }
+  } else {
+    // Lid: beschikbare slots + eigen booking-status per slot
+    const slotRes = await db.execute({
+      sql: `SELECT s.*,
+                   (SELECT COUNT(*) FROM vrij_trainen_bookings b WHERE b.slot_id = s.id AND b.status IN ('requested','confirmed')) AS booking_count,
+                   (SELECT status FROM vrij_trainen_bookings b WHERE b.slot_id = s.id AND b.user_id = ? AND b.status NOT IN ('cancelled','declined')) AS my_status,
+                   (SELECT id FROM vrij_trainen_bookings b WHERE b.slot_id = s.id AND b.user_id = ? AND b.status NOT IN ('cancelled','declined')) AS my_booking_id
+            FROM vt_slots s
+            WHERE s.status = 'available'
+              AND s.date >= ? AND s.date <= ?
+            ORDER BY s.date, s.start_time`,
+      args: [userId, userId, from, to],
+    });
+    vtSlots = slotRes.rows.map(s => ({ ...s, type: 'vt_slot' }));
+  }
 
   res.json({
     classes:          classRes.rows,
     pt_bookings:      ptRes.rows,
-    vt_bookings:      vtRes.rows,
+    pt_available:     ptAvailableRows,
+    vt_slots:         vtSlots,
   });
 };
 

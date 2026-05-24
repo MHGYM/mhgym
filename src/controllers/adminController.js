@@ -329,6 +329,36 @@ const getStats = async (req, res) => {
 
 // ── Betalingsfouten ─────────────────────────────────────────────────────────
 
+const getPaymentDetail = async (req, res) => {
+  const pfRes = await db.execute({
+    sql: `SELECT pf.*, u.first_name, u.last_name, u.email, u.phone, u.membership_paused
+          FROM payment_failures pf
+          JOIN users u ON u.id = pf.user_id
+          WHERE pf.id = ?`,
+    args: [req.params.id],
+  });
+  const pf = pfRes.rows[0];
+  if (!pf) return res.status(404).json({ error: 'Niet gevonden.' });
+
+  // Betaalhistorie van dit lid (laatste 20)
+  const history = await db.execute({
+    sql: `SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`,
+    args: [pf.user_id],
+  });
+
+  // Actief lidmaatschap
+  const memRes = await db.execute({
+    sql: `SELECT um.*, m.name AS membership_name, m.category FROM user_memberships um LEFT JOIN memberships m ON m.id = um.membership_id WHERE um.user_id = ? AND um.status IN ('active','cancelling') LIMIT 1`,
+    args: [pf.user_id],
+  });
+
+  res.json({
+    failure: pf,
+    payment_history: history.rows,
+    active_membership: memRes.rows[0] || null,
+  });
+};
+
 const getPaymentFailures = async (req, res) => {
   const result = await db.execute(`
     SELECT pf.*, u.first_name, u.last_name, u.email
@@ -372,6 +402,145 @@ const markPaymentPaid = async (req, res) => {
   res.json({ message: 'Betaling gemarkeerd als voldaan.' });
 };
 
+const sendPayLink = async (req, res) => {
+  const pfRes = await db.execute({
+    sql: `SELECT pf.*, u.email, u.first_name, u.last_name FROM payment_failures pf JOIN users u ON u.id = pf.user_id WHERE pf.id = ?`,
+    args: [req.params.id],
+  });
+  const pf = pfRes.rows[0];
+  if (!pf) return res.status(404).json({ error: 'Niet gevonden.' });
+
+  // Probeer Mollie betaallink aan te maken
+  let payLink = null;
+  try {
+    const { createMollieClient } = require('@mollie/api-client');
+    if (process.env.MOLLIE_API_KEY && process.env.MOLLIE_API_KEY !== 'test_dummy') {
+      const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
+      const total  = (Number(pf.amount) + Number(pf.surcharge_added || 0)).toFixed(2);
+      const payment = await mollie.payments.create({
+        amount:      { currency: 'EUR', value: total },
+        description: pf.description || `Openstaande betaling MHGym - ${pf.first_name} ${pf.last_name}`,
+        redirectUrl: `${process.env.FRONTEND_URL || 'https://mhgym.nl'}/dashboard`,
+        metadata:    { payment_failure_id: pf.id, user_id: pf.user_id },
+      });
+      payLink = payment._links.checkout.href;
+    }
+  } catch (e) {
+    console.warn('[Mollie] Kon geen betaallink aanmaken:', e.message);
+  }
+
+  // Stuur e-mail + push met of zonder link
+  const total = (Number(pf.amount) + Number(pf.surcharge_added || 0)).toFixed(2);
+  const linkHtml = payLink
+    ? `<div style="margin:24px 0;text-align:center"><a href="${payLink}" style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">Betaal nu €${total}</a></div>`
+    : `<p>Neem contact op met MHGym om de betaling te regelen.</p>`;
+
+  await sendEmail({
+    to: pf.email,
+    subject: 'Betaalverzoek MHGym',
+    html: `<div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto">
+      <div style="background:#000;padding:24px 32px;text-align:center"><span style="font-size:26px;font-weight:900;color:#F5C200">MH</span><span style="font-size:26px;font-weight:900;color:#fff">GYM</span></div>
+      <div style="padding:32px">
+        <h2 style="color:#F5C200">Openstaande betaling</h2>
+        <p>Hoi ${pf.first_name},</p>
+        <p>Er staat nog een betaling van <strong style="color:#F5C200">€${total}</strong> open bij MHGym.</p>
+        ${linkHtml}
+        <p style="color:#666;font-size:13px">Vragen? <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a></p>
+      </div>
+    </div>`,
+  }).catch(() => {});
+
+  await sendPush(pf.user_id, '💳 Betaalverzoek MHGym', `Er staat €${total} open. Klik voor je betaallink.`).catch(() => {});
+
+  // Sla de link op
+  await db.execute({
+    sql: `UPDATE payment_failures SET mollie_paylink = ?, last_reminder_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+    args: [payLink || null, req.params.id],
+  });
+
+  res.json({ message: 'Betaallink verstuurd.', pay_link: payLink });
+};
+
+/**
+ * Automatische herinneringen: dag 0, 3, 7, 8 (auto-pauze)
+ * Wordt aangeroepen via een cron-achtige endpoint (POST /admin/payment-failures/auto-remind)
+ */
+const processAutoReminders = async (req, res) => {
+  const now = new Date();
+  const results = { day0: 0, day3: 0, day7: 0, auto_paused: 0 };
+
+  const failures = await db.execute({
+    sql: `SELECT pf.*, u.email, u.first_name, u.last_name
+          FROM payment_failures pf
+          JOIN users u ON u.id = pf.user_id
+          WHERE pf.status = 'open'
+          ORDER BY pf.created_at`,
+    args: [],
+  });
+
+  for (const pf of failures.rows) {
+    const daysOld = Math.floor((now - new Date(pf.created_at)) / 86400000);
+    const total   = (Number(pf.amount) + Number(pf.surcharge_added || 0)).toFixed(2);
+
+    // Dag 0 — directe herinnering
+    if (daysOld >= 0 && !pf.reminder_day0_sent) {
+      await sendEmail({
+        to: pf.email,
+        subject: 'Betaling mislukt — MHGym',
+        html: `<p>Hoi ${pf.first_name},</p><p>Je betaling van €${total} is niet gelukt. Zorg dat je rekening saldo heeft, dan proberen we het opnieuw.</p><p>Vragen? <a href="mailto:info@mhgym.nl">info@mhgym.nl</a></p>`,
+      }).catch(() => {});
+      await sendPush(pf.user_id, '⚠️ Betaling mislukt', `Je betaling van €${total} is niet gelukt. Controleer je rekening.`).catch(() => {});
+      await db.execute({ sql: `UPDATE payment_failures SET reminder_day0_sent = 1, last_reminder_at = datetime('now') WHERE id = ?`, args: [pf.id] });
+      results.day0++;
+    }
+
+    // Dag 3 — tweede herinnering
+    if (daysOld >= 3 && !pf.reminder_day3_sent) {
+      await sendEmail({
+        to: pf.email,
+        subject: 'Herinnering: openstaande betaling — MHGym',
+        html: `<p>Hoi ${pf.first_name},</p><p>Je betaling van €${total} staat nog steeds open (${daysOld} dagen). Los dit zo snel mogelijk op om je lidmaatschap actief te houden.</p>`,
+      }).catch(() => {});
+      await sendPush(pf.user_id, '📋 Betaling nog open', `Dag 3: je betaling van €${total} staat nog open.`).catch(() => {});
+      await db.execute({ sql: `UPDATE payment_failures SET reminder_day3_sent = 1, last_reminder_at = datetime('now') WHERE id = ?`, args: [pf.id] });
+      results.day3++;
+    }
+
+    // Dag 7 — waarschuwing voor auto-pauze
+    if (daysOld >= 7 && !pf.reminder_day7_sent) {
+      await sendEmail({
+        to: pf.email,
+        subject: '⚠️ Laatste waarschuwing: betaling MHGym',
+        html: `<p>Hoi ${pf.first_name},</p><p>Je betaling van €${total} staat al 7 dagen open. <strong>Als dit morgen niet is opgelost, wordt je lidmaatschap automatisch gepauzeerd.</strong></p><p>Neem direct contact op: <a href="mailto:info@mhgym.nl">info@mhgym.nl</a></p>`,
+      }).catch(() => {});
+      await sendPush(pf.user_id, '🔴 Laatste waarschuwing', `Je betaling van €${total} staat 7 dagen open. Morgen wordt je lid gepauzeerd.`).catch(() => {});
+      await db.execute({ sql: `UPDATE payment_failures SET reminder_day7_sent = 1, last_reminder_at = datetime('now') WHERE id = ?`, args: [pf.id] });
+      results.day7++;
+    }
+
+    // Dag 8 — automatisch pauzeren
+    if (daysOld >= 8 && !pf.auto_paused_at) {
+      await db.execute({
+        sql: `UPDATE users SET membership_paused = 1, membership_paused_reason = 'Automatisch gepauzeerd wegens openstaande betaling', updated_at = datetime('now') WHERE id = ?`,
+        args: [pf.user_id],
+      });
+      await db.execute({
+        sql: `UPDATE payment_failures SET auto_paused_at = datetime('now'), status = 'paused', updated_at = datetime('now') WHERE id = ?`,
+        args: [pf.id],
+      });
+      await sendEmail({
+        to: pf.email,
+        subject: 'Lidmaatschap gepauzeerd — MHGym',
+        html: `<p>Hoi ${pf.first_name},</p><p>Wegens een openstaande betaling van €${total} is je lidmaatschap tijdelijk gepauzeerd. Neem contact op om dit te herstellen: <a href="mailto:info@mhgym.nl">info@mhgym.nl</a></p>`,
+      }).catch(() => {});
+      await sendPush(pf.user_id, '🔒 Lidmaatschap gepauzeerd', `Je lidmaatschap is gepauzeerd wegens een openstaande betaling van €${total}.`).catch(() => {});
+      results.auto_paused++;
+    }
+  }
+
+  res.json({ message: 'Auto-herinneringen verwerkt.', results });
+};
+
 const pauseMembershipFromFailure = async (req, res) => {
   const pfRes = await db.execute({ sql: 'SELECT * FROM payment_failures WHERE id = ?', args: [req.params.id] });
   const pf = pfRes.rows[0];
@@ -395,5 +564,6 @@ module.exports = {
   adminListBookings,
   adminListPayments,
   getStats,
-  getPaymentFailures, sendPaymentReminder, markPaymentPaid, pauseMembershipFromFailure,
+  getPaymentFailures, getPaymentDetail, sendPaymentReminder, sendPayLink,
+  markPaymentPaid, pauseMembershipFromFailure, processAutoReminders,
 };

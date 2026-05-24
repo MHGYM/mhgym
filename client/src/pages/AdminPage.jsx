@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Calendar, CreditCard,
   Zap, AlertTriangle, Users2,
   Search, Plus, Check, X, Euro, Clock, Edit2, Trash2,
-  Bell, PauseCircle, PlayCircle, Pin, Crown
+  Bell, PauseCircle, PlayCircle, Pin, Crown, Link, ChevronLeft, RefreshCw
 } from 'lucide-react'
 import api from '../api'
 
@@ -493,25 +493,153 @@ function PTAgendaSection() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// BETALINGSFOUTEN
+// BETALINGSFOUTEN — met detail modal
 // ════════════════════════════════════════════════════════════════════
-function BetalingenSection() {
-  const [failures, setFailures] = useState([])
-  const [loading,  setLoading]  = useState(true)
+function PaymentDetailModal({ failureId, onClose, onRefresh }) {
+  const [data,    setData]    = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [busy,    setBusy]    = useState(false)
 
   useEffect(() => {
-    api.get('/admin/payment-failures').then(r => { setFailures(r.data.failures); setLoading(false) }).catch(() => setLoading(false))
-  }, [])
+    api.get(`/admin/payment-failures/${failureId}`)
+      .then(r => { setData(r.data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [failureId])
 
-  const remind   = async id => { try { await api.post(`/admin/payment-failures/${id}/remind`); alert('Herinnering verstuurd.') } catch(e) { alert(e.response?.data?.error) } }
-  const markPaid = async id => { await api.put(`/admin/payment-failures/${id}/paid`); setFailures(f => f.filter(x => x.id!==id)) }
-  const pauseMem = async id => { await api.put(`/admin/payment-failures/${id}/pause`); setFailures(f => f.filter(x => x.id!==id)) }
+  const act = async (fn) => { setBusy(true); try { await fn() } catch(e) { alert(e.response?.data?.error||'Fout') } finally { setBusy(false) } }
+
+  const remind    = () => act(async () => { await api.post(`/admin/payment-failures/${failureId}/remind`);  alert('Herinnering verstuurd.') })
+  const sendLink  = () => act(async () => { const r = await api.post(`/admin/payment-failures/${failureId}/paylink`); alert(r.data.pay_link ? `Betaallink verstuurd: ${r.data.pay_link}` : 'Betaalverzoek verstuurd (geen Mollie link).') })
+  const markPaid  = () => act(async () => { await api.put(`/admin/payment-failures/${failureId}/paid`);   onRefresh(); onClose() })
+  const pauseMem  = () => act(async () => { await api.put(`/admin/payment-failures/${failureId}/pause`);  onRefresh(); onClose() })
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth:480 }}>
+        <div className="modal-header">
+          <button className="btn-icon" onClick={onClose}><ChevronLeft size={18}/></button>
+          <h3>Betaling detail</h3>
+          <button className="btn-icon" onClick={onClose}><X size={18}/></button>
+        </div>
+
+        {loading && <div style={{ padding:'2rem', textAlign:'center', color:'var(--text-muted)' }}>Laden…</div>}
+        {data && (() => {
+          const { failure: f, payment_history: hist, active_membership: mem } = data
+          const daysOld = Math.floor((Date.now() - new Date(f.created_at)) / 86400000)
+          const total   = Number(f.amount) + Number(f.surcharge_added || 0)
+          return (
+            <div style={{ padding:'1rem', display:'flex', flexDirection:'column', gap:'1rem' }}>
+              {/* Lid info */}
+              <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+                <div style={{ width:44,height:44,borderRadius:'50%',background:'var(--error)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,flexShrink:0 }}>
+                  {(f.first_name?.[0]||'?')+(f.last_name?.[0]||'')}
+                </div>
+                <div>
+                  <div style={{ fontWeight:700 }}>{f.first_name} {f.last_name}</div>
+                  <div style={{ fontSize:'0.8rem', color:'var(--text-muted)' }}>{f.email} · {f.phone||'—'}</div>
+                  {f.membership_paused ? <span className="badge-error" style={{ fontSize:'0.72rem' }}>Gepauzeerd</span> : null}
+                </div>
+              </div>
+
+              {/* Bedrag + status */}
+              <div style={{ background:'var(--surface-2)', borderRadius:8, padding:'0.75rem', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <div style={{ fontSize:'0.8rem', color:'var(--text-muted)' }}>Openstaand bedrag</div>
+                  {f.description && <div style={{ fontSize:'0.82rem', color:'var(--text-2)', marginTop:2 }}>{f.description}</div>}
+                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', marginTop:4 }}>{f.failure_count}× mislukt · {daysOld} dag{daysOld!==1?'en':''} geleden</div>
+                  {f.surcharge_added > 0 && <div style={{ fontSize:'0.75rem', color:'var(--error)' }}>incl. €{f.surcharge_added} stornerings­toeslag</div>}
+                </div>
+                <div style={{ fontWeight:900, fontSize:'1.4rem', color:'var(--error)' }}>{fmtMoney(total)}</div>
+              </div>
+
+              {/* Actief lidmaatschap */}
+              {mem && (
+                <div style={{ background:'var(--surface-2)', borderRadius:8, padding:'0.6rem 0.75rem', fontSize:'0.85rem' }}>
+                  <span style={{ color:'var(--text-muted)' }}>Lidmaatschap: </span>
+                  <span style={{ fontWeight:600 }}>{mem.membership_name}</span>
+                  <span style={{ marginLeft:8, color:'var(--text-muted)' }}>{mem.status}</span>
+                </div>
+              )}
+
+              {/* Reminder tracking */}
+              <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', fontSize:'0.78rem' }}>
+                {[['Dag 0', f.reminder_day0_sent], ['Dag 3', f.reminder_day3_sent], ['Dag 7', f.reminder_day7_sent]].map(([lbl, sent]) => (
+                  <span key={lbl} style={{ padding:'2px 8px', borderRadius:12, background:sent?'var(--success-dim)':'var(--surface-3)', color:sent?'var(--success)':'var(--text-muted)' }}>
+                    {lbl} {sent?'✓':'—'}
+                  </span>
+                ))}
+                {f.auto_paused_at && <span style={{ padding:'2px 8px', borderRadius:12, background:'var(--error-dim,rgba(239,68,68,0.15))', color:'var(--error)' }}>Auto-gepauzeerd</span>}
+              </div>
+
+              {/* Actie knoppen */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem' }}>
+                <button className="btn btn-ghost btn-sm" onClick={remind} disabled={busy}>
+                  <Bell size={13}/> Herinnering
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={sendLink} disabled={busy}>
+                  <Link size={13}/> Betaallink
+                </button>
+                <button className="btn btn-sm" style={{ background:'var(--success-dim)',color:'var(--success)' }} onClick={markPaid} disabled={busy}>
+                  <Check size={13}/> Markeer betaald
+                </button>
+                <button className="btn btn-danger btn-sm" onClick={pauseMem} disabled={busy}>
+                  <PauseCircle size={13}/> Pauzeer lid
+                </button>
+              </div>
+
+              {/* Betaalhistorie */}
+              {hist.length > 0 && (
+                <div>
+                  <p style={{ fontWeight:600, fontSize:'0.85rem', marginBottom:'0.5rem' }}>Betaalhistorie</p>
+                  <div style={{ maxHeight:180, overflowY:'auto', display:'flex', flexDirection:'column', gap:2 }}>
+                    {hist.map(p => (
+                      <div key={p.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.3rem 0.5rem', background:'var(--surface-2)', borderRadius:6, fontSize:'0.8rem' }}>
+                        <span style={{ color:'var(--text-muted)' }}>{fmtDate(p.created_at)}</span>
+                        <span>{p.description||'—'}</span>
+                        <span style={{ fontWeight:700, color:p.status==='paid'?'var(--success)':'var(--error)' }}>{fmtMoney(p.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+      </div>
+    </div>
+  )
+}
+
+function BetalingenSection() {
+  const [failures,    setFailures]    = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [selectedId,  setSelectedId]  = useState(null)
+
+  const load = () => {
+    setLoading(true)
+    api.get('/admin/payment-failures').then(r => { setFailures(r.data.failures); setLoading(false) }).catch(() => setLoading(false))
+  }
+
+  useEffect(load, [])
+
+  const runAutoRemind = async () => {
+    try {
+      const r = await api.post('/admin/payment-failures/auto-remind')
+      alert(`Auto-herinneringen: dag0=${r.data.results.day0}, dag3=${r.data.results.day3}, dag7=${r.data.results.day7}, gepauzeerd=${r.data.results.auto_paused}`)
+      load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
 
   if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
 
   return (
     <div>
-      <h2 style={{marginBottom:'1.5rem'}}>Openstaande Betalingen</h2>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.5rem' }}>
+        <h2 style={{ margin:0 }}>Openstaande Betalingen</h2>
+        <button className="btn btn-ghost btn-sm" onClick={runAutoRemind} title="Verwerk automatische herinneringen">
+          <RefreshCw size={13}/> Auto-herinner
+        </button>
+      </div>
       {failures.length === 0 && (
         <div style={{textAlign:'center',padding:'4rem',color:'var(--text-muted)'}}>
           <p style={{fontSize:'3rem',marginBottom:'0.5rem'}}>✅</p>
@@ -522,27 +650,202 @@ function BetalingenSection() {
         const daysOld = Math.floor((Date.now() - new Date(f.created_at)) / 86400000)
         const total   = Number(f.amount) + Number(f.surcharge_added || 0)
         return (
-          <div key={f.id} className="card" style={{marginBottom:'0.75rem',borderColor:f.failure_count>=2?'var(--error)':'var(--border)'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'0.75rem'}}>
+          <div key={f.id} className="card"
+            style={{ marginBottom:'0.75rem', borderColor:f.failure_count>=2?'var(--error)':'var(--border)', cursor:'pointer' }}
+            onClick={() => setSelectedId(f.id)}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <div>
                 <div style={{fontWeight:700}}>{f.first_name} {f.last_name}</div>
                 <div style={{fontSize:'0.85rem',color:'var(--text-muted)'}}>{f.email}</div>
                 {f.description && <div style={{fontSize:'0.8rem',color:'var(--text-2)',marginTop:3}}>{f.description}</div>}
+                <div style={{ display:'flex', gap:'0.4rem', marginTop:6, flexWrap:'wrap' }}>
+                  {f.reminder_day0_sent ? <span style={{ fontSize:'0.72rem', padding:'1px 6px', borderRadius:10, background:'var(--surface-3)', color:'var(--text-muted)' }}>D0 ✓</span> : null}
+                  {f.reminder_day3_sent ? <span style={{ fontSize:'0.72rem', padding:'1px 6px', borderRadius:10, background:'var(--surface-3)', color:'var(--text-muted)' }}>D3 ✓</span> : null}
+                  {f.reminder_day7_sent ? <span style={{ fontSize:'0.72rem', padding:'1px 6px', borderRadius:10, background:'var(--surface-3)', color:'var(--text-muted)' }}>D7 ✓</span> : null}
+                  {f.auto_paused_at ? <span style={{ fontSize:'0.72rem', padding:'1px 6px', borderRadius:10, background:'rgba(239,68,68,0.15)', color:'var(--error)' }}>Gepauzeerd</span> : null}
+                </div>
               </div>
               <div style={{textAlign:'right'}}>
                 <div style={{fontWeight:800,fontSize:'1.2rem',color:'var(--error)'}}>{fmtMoney(total)}</div>
                 {f.surcharge_added>0 && <div style={{fontSize:'0.75rem',color:'var(--error)'}}>incl. €{f.surcharge_added} toeslag</div>}
-                <div style={{fontSize:'0.78rem',color:'var(--text-muted)',marginTop:2}}>{f.failure_count}× mislukt · {daysOld}d geleden</div>
+                <div style={{fontSize:'0.78rem',color:'var(--text-muted)',marginTop:2}}>{f.failure_count}× mislukt · {daysOld}d</div>
+                <div style={{ fontSize:'0.72rem', color:'var(--accent)', marginTop:4 }}>Klik voor details →</div>
               </div>
-            </div>
-            <div style={{display:'flex',gap:'0.5rem',flexWrap:'wrap'}}>
-              <button className="btn btn-ghost btn-sm" onClick={() => remind(f.id)}><Bell size={13}/> Herinnering</button>
-              <button className="btn btn-sm" style={{background:'var(--success-dim)',color:'var(--success)'}} onClick={() => markPaid(f.id)}><Check size={13}/> Betaald</button>
-              <button className="btn btn-danger btn-sm" onClick={() => pauseMem(f.id)}><PauseCircle size={13}/> Pauzeer lid</button>
             </div>
           </div>
         )
       })}
+
+      {selectedId && (
+        <PaymentDetailModal
+          failureId={selectedId}
+          onClose={() => setSelectedId(null)}
+          onRefresh={load}
+        />
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// VT AGENDA (Admin) — slots + boekingen beheren
+// ════════════════════════════════════════════════════════════════════
+function VTAgendaSection() {
+  const [slots,      setSlots]      = useState([])
+  const [members,    setMembers]    = useState([])
+  const [tab,        setTab]        = useState('pending')
+  const [showNew,    setShowNew]    = useState(false)
+  const [newSlot,    setNewSlot]    = useState({ date:'', start_time:'08:00', end_time:'10:00', max_bookings:10, notes:'' })
+  const [directSlot, setDirectSlot] = useState(null)
+  const [selMember,  setSelMember]  = useState('')
+
+  const today = new Date().toISOString().split('T')[0]
+  const to    = new Date(Date.now() + 60*86400000).toISOString().split('T')[0]
+  const HOURS = []
+  for (let h = 8; h <= 22; h++) HOURS.push(`${String(h).padStart(2,'0')}:00`)
+
+  const reload = () => {
+    api.get(`/vt/admin/slots?from=${today}&to=${to}`).then(r => setSlots(r.data.slots || [])).catch(() => {})
+    api.get('/admin/members').then(r => setMembers(r.data.members || [])).catch(() => {})
+  }
+  useEffect(reload, [])
+
+  const pendingSlots   = slots.filter(s => Number(s.pending_count) > 0)
+  const allUpcoming    = slots.filter(s => s.date >= today)
+  const bookings       = slots.flatMap(s => (s.bookings||[]).map(b => ({...b, slot_date:s.date, slot_start:s.start_time, slot_end:s.end_time})))
+  const pendingBooks   = bookings.filter(b => b.status === 'requested')
+  const confirmedBooks = bookings.filter(b => b.status === 'confirmed')
+
+  const createSlot = async () => {
+    if (!newSlot.date || !newSlot.start_time || !newSlot.end_time) return alert('Vul datum en tijden in.')
+    try {
+      await api.post('/vt/admin/slots', newSlot)
+      setShowNew(false); setNewSlot({ date:'', start_time:'08:00', end_time:'10:00', max_bookings:10, notes:'' }); reload()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const confirmB = async id => { await api.put(`/vt/admin/bookings/${id}/confirm`); reload() }
+  const declineB = async id => { await api.put(`/vt/admin/bookings/${id}/decline`); reload() }
+
+  const doDirectBook = async () => {
+    if (!selMember || !directSlot) return
+    try {
+      await api.post(`/vt/admin/slots/${directSlot.id}/book-member`, { user_id: parseInt(selMember) })
+      setDirectSlot(null); setSelMember(''); reload()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const deleteSlot = async id => {
+    if (!confirm('Slot verwijderen? Alle aanvragen worden geannuleerd.')) return
+    await api.delete(`/vt/admin/slots/${id}`); reload()
+  }
+
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem' }}>
+        <div className="tab-bar">
+          {[
+            ['pending',  `Aanvragen (${pendingBooks.length})`],
+            ['confirmed','Bevestigd'],
+            ['slots',    `Slots (${allUpcoming.length})`],
+          ].map(([k,l]) => <button key={k} className={`tab-btn${tab===k?' active':''}`} onClick={() => setTab(k)}>{l}</button>)}
+        </div>
+        {tab === 'slots' && (
+          <button className="btn btn-primary btn-sm" onClick={() => setShowNew(s=>!s)}>
+            {showNew ? <X size={13}/> : <Plus size={13}/>} Nieuw slot
+          </button>
+        )}
+      </div>
+
+      {/* Nieuw slot form */}
+      {tab === 'slots' && showNew && (
+        <div className="card" style={{ marginBottom:'1rem' }}>
+          <h3 style={{ marginBottom:'0.75rem' }}>Slot aanmaken</h3>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem' }}>
+            <div><label className="input-label">Datum</label>
+              <input className="input" type="date" min={today} value={newSlot.date} onChange={e => setNewSlot({...newSlot,date:e.target.value})}/></div>
+            <div><label className="input-label">Max personen</label>
+              <input className="input" type="number" min="1" value={newSlot.max_bookings} onChange={e => setNewSlot({...newSlot,max_bookings:parseInt(e.target.value)})}/></div>
+            <div><label className="input-label">Van</label>
+              <select className="input" value={newSlot.start_time} onChange={e => setNewSlot({...newSlot,start_time:e.target.value})}>
+                {HOURS.map(h=><option key={h} value={h}>{h}</option>)}</select></div>
+            <div><label className="input-label">Tot</label>
+              <select className="input" value={newSlot.end_time} onChange={e => setNewSlot({...newSlot,end_time:e.target.value})}>
+                {HOURS.filter(h=>h>newSlot.start_time).map(h=><option key={h} value={h}>{h}</option>)}</select></div>
+            <div style={{ gridColumn:'span 2' }}><label className="input-label">Notities</label>
+              <input className="input" value={newSlot.notes} onChange={e => setNewSlot({...newSlot,notes:e.target.value})} placeholder="Optioneel…"/></div>
+          </div>
+          <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
+            <button className="btn btn-primary btn-sm" onClick={createSlot}><Check size={13}/> Aanmaken</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowNew(false)}><X size={13}/> Annuleren</button>
+          </div>
+        </div>
+      )}
+
+      {/* Aanvragen tab */}
+      {tab === 'pending' && (
+        <div>
+          {pendingBooks.length === 0 && <p style={{ color:'var(--text-muted)' }}>Geen openstaande aanvragen</p>}
+          {pendingBooks.map(b => (
+            <div key={b.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.75rem', background:'var(--surface-2)', borderRadius:'var(--r)', marginBottom:'0.5rem' }}>
+              <div>
+                <div style={{ fontWeight:600, fontSize:'0.875rem' }}>{b.first_name} {b.last_name}</div>
+                <div style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>{b.slot_date} · {b.slot_start}–{b.slot_end}</div>
+                {b.notes && <div style={{ fontSize:'0.75rem', color:'var(--text-2)' }}>{b.notes}</div>}
+              </div>
+              <div style={{ display:'flex', gap:'0.5rem' }}>
+                <button className="btn btn-sm" style={{ background:'var(--success-dim)',color:'var(--success)' }} onClick={() => confirmB(b.id)}><Check size={13}/> Bevestig</button>
+                <button className="btn btn-danger btn-sm" onClick={() => declineB(b.id)}><X size={13}/> Weiger</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Bevestigd tab */}
+      {tab === 'confirmed' && (
+        <div>
+          {confirmedBooks.length === 0 && <p style={{ color:'var(--text-muted)' }}>Geen bevestigde boekingen</p>}
+          {confirmedBooks.map(b => (
+            <div key={b.id} style={{ display:'flex', justifyContent:'space-between', padding:'0.6rem 0.75rem', background:'var(--surface-2)', borderRadius:'var(--r)', marginBottom:'0.4rem', fontSize:'0.875rem' }}>
+              <span style={{ fontWeight:600 }}>{b.first_name} {b.last_name}</span>
+              <span style={{ color:'var(--text-muted)' }}>{b.slot_date} · {b.slot_start}–{b.slot_end}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Slots tab */}
+      {tab === 'slots' && allUpcoming.map(s => (
+        <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.75rem', background:'var(--surface-2)', borderRadius:'var(--r)', marginBottom:'0.5rem' }}>
+          <div>
+            <div style={{ fontWeight:600, fontSize:'0.875rem' }}>{s.date} · {s.start_time}–{s.end_time}</div>
+            <div style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>
+              {s.booking_count}/{s.max_bookings} pers.
+              {s.pending_count > 0 && <span style={{ marginLeft:6, color:'var(--warning)' }}>{s.pending_count} aanvraag{s.pending_count>1?'en':''}</span>}
+              {s.confirmed_count > 0 && <span style={{ marginLeft:6, color:'var(--success)' }}>{s.confirmed_count} bevestigd</span>}
+            </div>
+            {s.notes && <div style={{ fontSize:'0.75rem', color:'var(--text-2)' }}>{s.notes}</div>}
+          </div>
+          <div style={{ display:'flex', gap:'0.5rem', flexShrink:0, alignItems:'center' }}>
+            {directSlot?.id === s.id ? (
+              <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+                <select className="input" style={{ minWidth:160, padding:'4px 8px', fontSize:'0.8rem' }} value={selMember} onChange={e => setSelMember(e.target.value)}>
+                  <option value="">— Lid —</option>
+                  {members.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+                </select>
+                <button className="btn btn-primary btn-sm" onClick={doDirectBook}><Check size={13}/></button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setDirectSlot(null)}><X size={13}/></button>
+              </div>
+            ) : (
+              <button className="btn btn-ghost btn-sm" onClick={() => setDirectSlot(s)}>
+                <Plus size={13}/> Boek lid
+              </button>
+            )}
+            <button className="btn btn-danger btn-sm" onClick={() => deleteSlot(s.id)}><Trash2 size={13}/></button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -688,6 +991,7 @@ const MENU = [
   { key:'dashboard',  label:'Dashboard',       Icon:LayoutDashboard },
   { key:'leden',      label:'Leden',            Icon:Users           },
   { key:'pt',         label:'PT Agenda',         Icon:Zap             },
+  { key:'vt',         label:'Vrij Trainen',      Icon:Calendar        },
   { key:'betalingen', label:'Betalingsfouten',   Icon:AlertTriangle   },
   { key:'community',  label:'Community',         Icon:Users2          },
   { key:'rooster',    label:'Rooster',           Icon:Calendar        },
@@ -711,6 +1015,7 @@ export default function AdminPage() {
         {section==='dashboard'  && <DashboardSection/>}
         {section==='leden'      && <LedenSection/>}
         {section==='pt'         && <PTAgendaSection/>}
+        {section==='vt'         && <VTAgendaSection/>}
         {section==='betalingen' && <BetalingenSection/>}
         {section==='community'  && <CommunityBeheer/>}
         {section==='rooster'    && <RoosterSection/>}
