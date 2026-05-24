@@ -97,38 +97,56 @@ async function sendWelcomeEmail({ to, firstName }) {
 }
 
 /**
- * Lidmaatschapsbevestiging na succesvolle Mollie betaling
+ * Lidmaatschapsbevestiging na succesvolle Mollie betaling — met volledige contractinfo
  */
-async function sendMembershipConfirmation({ to, firstName, membershipName, priceMonthly, startDate, endDate }) {
+async function sendMembershipConfirmation({ to, firstName, membershipName, priceMonthly, startDate, contractEnd, minimumMonths }) {
   const fmt = (d) => d ? new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : '–';
+
+  // Vroegste opzegdatum = contractEnd + 1 maand opzegtermijn
+  const cancelFromDate = contractEnd ? new Date(contractEnd) : null;
+  const cancelFrom = cancelFromDate
+    ? cancelFromDate.toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '–';
 
   const html = `
     <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
       ${headerHtml()}
       <div style="padding:32px">
-        <h2 style="color:#F5C200;margin:0 0 12px">Betaling geslaagd! 🎉</h2>
-        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je lidmaatschap is actief.</p>
+        <h2 style="color:#F5C200;margin:0 0 12px">Welkom bij MHGym! Je lidmaatschap is actief. 🎉</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je eerste betaling is ontvangen en je incassomachtiging is vastgelegd. Hieronder vind je je contractgegevens.</p>
 
         <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <p style="color:#F5C200;font-weight:700;margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px">Contractoverzicht</p>
           <table style="width:100%;border-collapse:collapse">
             <tr><td style="color:#888;padding:6px 0">Lidmaatschap</td>
                 <td style="color:#fff;font-weight:600;text-align:right">${membershipName}</td></tr>
-            <tr><td style="color:#888;padding:6px 0">Bedrag</td>
+            <tr><td style="color:#888;padding:6px 0">Maandbedrag</td>
                 <td style="color:#F5C200;font-weight:700;text-align:right">€${Number(priceMonthly).toFixed(2)}/mnd</td></tr>
             <tr><td style="color:#888;padding:6px 0">Startdatum</td>
                 <td style="color:#fff;text-align:right">${fmt(startDate)}</td></tr>
-            <tr><td style="color:#888;padding:6px 0">Geldig t/m</td>
-                <td style="color:#fff;text-align:right">${fmt(endDate)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Minimale looptijd</td>
+                <td style="color:#fff;text-align:right">${minimumMonths} maand${minimumMonths > 1 ? 'en' : ''}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Opzegbaar vanaf</td>
+                <td style="color:#fff;text-align:right">${cancelFrom}</td></tr>
           </table>
+        </div>
+
+        <div style="background:#0f1a00;border:1px solid #2a4a00;border-radius:8px;padding:16px;margin:16px 0">
+          <p style="color:#86efac;margin:0;font-size:13px;line-height:1.6">
+            <strong>Hoe werkt het?</strong><br>
+            Elke maand wordt automatisch €${Number(priceMonthly).toFixed(2)} via SEPA incasso afgeschreven.
+            Je kunt opzeggen via de app zodra je minimale contractperiode voorbij is.
+            Er geldt altijd een opzegtermijn van 1 maand.
+          </p>
         </div>
 
         <div style="margin:24px 0;text-align:center">
           <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/schedule"
              style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
-            Bekijk lesrooster
+            Bekijk het lesrooster
           </a>
         </div>
-        <p style="color:#666;font-size:13px">Tot in de gym! 💪</p>
+        <p style="color:#666;font-size:13px">Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a><br>Tot in de gym! 💪</p>
       </div>
       ${footerHtml()}
     </div>`;

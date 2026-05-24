@@ -30,7 +30,8 @@ const createBooking = async (req, res) => {
     sql: `SELECT um.*, m.max_bookings_per_month
           FROM user_memberships um
           JOIN memberships m ON m.id = um.membership_id
-          WHERE um.user_id = ? AND um.status = 'active'
+          WHERE um.user_id = ? AND (um.status = 'active' OR um.status = 'cancelling')
+            AND (um.cancels_at IS NULL OR um.cancels_at >= date('now'))
           ORDER BY um.created_at DESC LIMIT 1`,
     args: [req.user.id],
   });
