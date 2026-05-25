@@ -30,12 +30,16 @@ const webpush      = require('web-push');
 const { sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail } = require('../services/emailService');
 
 // ── VAPID instellen ──────────────────────────────────────────────────────────
-if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+const VAPID_CONFIGURED = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+
+if (VAPID_CONFIGURED) {
   webpush.setVapidDetails(
-    'mailto:info@mhgym.nl',
+    process.env.VAPID_SUBJECT || 'mailto:info@mhgym.nl',
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY,
   );
+} else {
+  console.warn('[Push] VAPID keys niet geconfigureerd — push notificaties uitgeschakeld.');
 }
 
 // ── Vaste pakket- en abonnementsdefinities ───────────────────────────────────
@@ -63,6 +67,8 @@ function addMonths(date, n) {
 function toDateStr(d) { return new Date(d).toISOString().split('T')[0]; }
 
 async function sendPush(userId, title, body) {
+  // Skip silently when VAPID is not configured — push is optional
+  if (!VAPID_CONFIGURED) return;
   try {
     const subs = await db.execute({ sql: 'SELECT * FROM push_subscriptions WHERE user_id = ?', args: [userId] });
     for (const sub of subs.rows) {
