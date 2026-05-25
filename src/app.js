@@ -3,6 +3,7 @@ const express = require('express');
 const helmet  = require('helmet');
 const cors    = require('cors');
 const morgan  = require('morgan');
+const path    = require('path');
 
 // libSQL returns BigInt for lastInsertRowid — make it JSON-safe globally
 // eslint-disable-next-line no-extend-native
@@ -39,7 +40,17 @@ app.use('/api/cash',        require('./routes/cash'));
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
-// 404
+// ── Production: serve React frontend ────────────────────────────────────────
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '..', 'client', 'dist');
+  app.use(express.static(clientDist));
+  // SPA fallback — send index.html for all non-API routes
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
+// 404 (only reached in development for unknown API routes)
 app.use((_, res) => res.status(404).json({ error: 'Endpoint niet gevonden.' }));
 
 // Global error handler

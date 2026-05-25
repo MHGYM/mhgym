@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "build": "cd client && npm install && npm run build",
     "migrate": "node migrations/run.js"
   },
   "dependencies": {
