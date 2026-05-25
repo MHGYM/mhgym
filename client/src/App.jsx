@@ -12,6 +12,7 @@ import AdminPage from './pages/AdminPage'
 import PersonalTrainingPage from './pages/PersonalTrainingPage'
 import AgendaPage from './pages/AgendaPage'
 import CommunityPage from './pages/CommunityPage'
+import InstallPage from './pages/InstallPage'
 import MayaChatWidget from './components/MayaChatWidget'
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
     <AuthProvider>
       <Routes>
         {/* Public */}
+        <Route path="/install"  element={<InstallPage />} />
         <Route path="/login"    element={<AuthPage mode="login" />} />
         <Route path="/register" element={<AuthPage mode="register" />} />
 
