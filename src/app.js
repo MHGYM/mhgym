@@ -49,23 +49,28 @@ app.use('/api/cash',        require('./routes/cash'));
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
-// ── Production: serve React frontend ────────────────────────────────────────
-if (process.env.NODE_ENV === 'production') {
-  const clientDist = path.join(__dirname, '..', 'client', 'dist');
-  app.use(express.static(clientDist));
-  // SPA fallback — use app.use() (not app.get('*')) because Express 5
-  // path-to-regexp v8 no longer accepts bare '*' as a valid wildcard.
-  // Pass next so sendFile errors (e.g. missing index.html) reach the
-  // global error handler instead of leaving the request hanging.
-  app.use((req, res, next) => {
-    res.sendFile(path.join(clientDist, 'index.html'), (err) => {
-      if (err) next(err);
-    });
-  });
-}
+// ── Serve React frontend (if built) ─────────────────────────────────────────
+// Check for the built index.html rather than relying on NODE_ENV so the
+// frontend is served whenever the build exists — regardless of how Railway
+// sets environment variables.
+const clientDist  = path.join(__dirname, '..', 'client', 'dist');
+const indexHtml   = path.join(clientDist, 'index.html');
+const fs          = require('fs');
+const frontendBuilt = fs.existsSync(indexHtml);
 
-// 404 (only reached in development for unknown API routes)
-app.use((_, res) => res.status(404).json({ error: 'Endpoint niet gevonden.' }));
+if (frontendBuilt) {
+  console.log('[App] Serving React frontend from', clientDist);
+  app.use(express.static(clientDist));
+  // SPA fallback — app.use() avoids the Express 5 path-to-regexp wildcard issue.
+  // Explicit sendFile callback forwards ENOENT to the error handler.
+  app.use((req, res, next) => {
+    res.sendFile(indexHtml, (err) => { if (err) next(err); });
+  });
+} else {
+  console.warn('[App] client/dist/index.html not found — frontend not served.');
+  // 404 for unknown routes in API-only mode (local dev without a build)
+  app.use((_, res) => res.status(404).json({ error: 'Endpoint niet gevonden.' }));
+}
 
 // Global error handler
 app.use(errorHandler);
