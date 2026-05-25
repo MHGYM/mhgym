@@ -309,6 +309,42 @@ async function sendPtLowBalanceEmail({ to, firstName, remaining }) {
   await sendMail({ to, subject: `MHGym — Nog ${remaining} PT les${remaining > 1 ? 'sen' : ''} over`, html });
 }
 
+/**
+ * Wachtwoord-reset e-mail
+ */
+async function sendPasswordResetEmail({ to, firstName, resetUrl }) {
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">Wachtwoord opnieuw instellen</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName},</p>
+        <p style="color:#ccc;line-height:1.6">
+          We hebben een verzoek ontvangen om het wachtwoord van je MHGym account te resetten.
+          Klik op de knop hieronder om een nieuw wachtwoord in te stellen.
+        </p>
+        <div style="margin:28px 0;text-align:center">
+          <a href="${resetUrl}"
+             style="background:#F5C200;color:#000;padding:14px 32px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block;font-size:15px">
+            Stel nieuw wachtwoord in
+          </a>
+        </div>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin:16px 0">
+          <p style="color:#888;margin:0;font-size:12px;line-height:1.6">
+            Deze link is <strong style="color:#ccc">1 uur</strong> geldig. Heb jij dit niet aangevraagd?
+            Dan hoef je niets te doen — je wachtwoord blijft ongewijzigd.
+          </p>
+        </div>
+        <p style="color:#666;font-size:13px">
+          Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a>
+        </p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: 'MHGym — Wachtwoord resetten', html });
+}
+
 // Generic sendEmail wrapper for admin controller
 async function sendEmail({ to, subject, html }) {
   return sendMail({ to, subject, html });
@@ -317,5 +353,5 @@ async function sendEmail({ to, subject, html }) {
 module.exports = {
   sendWelcomeEmail, sendMembershipConfirmation, sendOrderConfirmation,
   sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail,
-  sendEmail,
+  sendPasswordResetEmail, sendEmail,
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Heart, MessageCircle, Pin, Crown, Plus, X, Trash2, Send } from 'lucide-react'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -160,6 +160,27 @@ function PostCard({ post, onLike, onDelete, onPin, currentUser }) {
   )
 }
 
+// Compress + resize an image File to a JPEG data-URL (max 800 px wide, quality 0.7)
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const MAX_W = 800
+      const ratio  = Math.min(1, MAX_W / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.round(img.width  * ratio)
+      canvas.height = Math.round(img.height * ratio)
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', 0.7))
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Afbeelding laden mislukt.')) }
+    img.src = url
+  })
+}
+
 export default function CommunityPage() {
   const { user } = useAuth()
   const isAdmin  = user?.role === 'admin'
@@ -270,14 +291,18 @@ export default function CommunityPage() {
                 capture="environment"
                 className="input"
                 style={{ padding: '0.4rem 0.75rem', cursor: 'pointer' }}
-                onChange={e => {
+                onChange={async e => {
                   const file = e.target.files?.[0]
                   if (!file) return
                   setImageLoading(true)
-                  const reader = new FileReader()
-                  reader.onload = ev => { setFormImage(ev.target.result); setImageLoading(false) }
-                  reader.onerror = () => { alert('Afbeelding laden mislukt.'); setImageLoading(false) }
-                  reader.readAsDataURL(file)
+                  try {
+                    const compressed = await compressImage(file)
+                    setFormImage(compressed)
+                  } catch {
+                    alert('Afbeelding laden mislukt.')
+                  } finally {
+                    setImageLoading(false)
+                  }
                 }}
               />
               {imageLoading && <p style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>Afbeelding laden…</p>}

@@ -521,11 +521,12 @@ export default function PersonalTrainingPage() {
     })()
   }, [])
 
-  if (loading) return <div className="page loading-center"><div className="spinner" /></div>
-
-  // Deduplicate by id — guards against StrictMode double-effect or stale state
+  // Hooks must always be called before any early return (Rules of Hooks).
+  // These are safe to compute while loading — the results just won't be rendered.
   const uniquePackages  = useMemo(() => packages.filter((p,i,a) => a.findIndex(x=>x.id===p.id)===i), [packages])
   const uniquePlans     = useMemo(() => plans.filter((p,i,a)    => a.findIndex(x=>x.id===p.id)===i), [plans])
+
+  if (loading) return <div className="page loading-center"><div className="spinner" /></div>
 
   const hasPurchases     = balance?.purchases?.length > 0
   const hasSubscription  = balance?.subscription?.status === 'active'

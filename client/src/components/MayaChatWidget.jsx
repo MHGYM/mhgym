@@ -60,7 +60,7 @@ export default function MayaChatWidget() {
   }
 
   return (
-    <div style={{ position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 9999, fontFamily: 'inherit' }}>
+    <div style={{ position: 'fixed', bottom: '5.5rem', right: '1.5rem', zIndex: 9999, fontFamily: 'inherit' }}>
 
       {/* ── Chat panel ── */}
       {open && (

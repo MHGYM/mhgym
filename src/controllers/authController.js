@@ -1,7 +1,8 @@
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const db = require('../config/database');
-const { sendWelcomeEmail } = require('../services/emailService');
+const jwt    = require('jsonwebtoken');
+const crypto = require('crypto');
+const db     = require('../config/database');
+const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailService');
 
 const generateToken = (user) =>
   jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, {
@@ -139,4 +140,60 @@ const changePassword = async (req, res) => {
   res.json({ message: 'Wachtwoord succesvol gewijzigd.' });
 };
 
-module.exports = { register, login, me, updateProfile, changePassword };
+// POST /api/auth/forgot-password
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'E-mailadres is verplicht.' });
+
+  // Always respond with success to avoid leaking which emails exist
+  const userRes = await db.execute({ sql: 'SELECT id, first_name, email FROM users WHERE email = ?', args: [email.toLowerCase().trim()] });
+  const user = userRes.rows[0];
+
+  if (user) {
+    const token     = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    // Invalidate any existing tokens for this user
+    await db.execute({ sql: 'DELETE FROM password_reset_tokens WHERE user_id = ?', args: [user.id] });
+
+    await db.execute({
+      sql: 'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+      args: [user.id, token, expiresAt],
+    });
+
+    const baseUrl  = process.env.FRONTEND_URL || 'https://app.mhgym.nl';
+    const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+
+    sendPasswordResetEmail({ to: user.email, firstName: user.first_name, resetUrl }).catch(() => {});
+  }
+
+  res.json({ message: 'Als dit e-mailadres bij ons bekend is, ontvang je binnen enkele minuten een e-mail.' });
+};
+
+// POST /api/auth/reset-password
+const resetPassword = async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: 'Token en wachtwoord zijn verplicht.' });
+  if (password.length < 8)  return res.status(400).json({ error: 'Wachtwoord minimaal 8 tekens.' });
+
+  const tokenRes = await db.execute({
+    sql: `SELECT * FROM password_reset_tokens
+          WHERE token = ? AND used = 0 AND expires_at > datetime('now')`,
+    args: [token],
+  });
+  const resetToken = tokenRes.rows[0];
+  if (!resetToken) return res.status(400).json({ error: 'Ongeldige of verlopen link. Vraag een nieuwe aan.' });
+
+  const hash = await bcrypt.hash(password, 12);
+  await db.execute({
+    sql: `UPDATE users SET password = ?, updated_at = datetime('now') WHERE id = ?`,
+    args: [hash, resetToken.user_id],
+  });
+
+  // Mark token as used
+  await db.execute({ sql: 'UPDATE password_reset_tokens SET used = 1 WHERE id = ?', args: [resetToken.id] });
+
+  res.json({ message: 'Wachtwoord succesvol gewijzigd. Je kunt nu inloggen.' });
+};
+
+module.exports = { register, login, me, updateProfile, changePassword, forgotPassword, resetPassword };

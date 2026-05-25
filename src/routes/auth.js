@@ -26,6 +26,9 @@ router.post('/login',
 
 router.get('/me',  authenticate, ctrl.me);
 
+router.post('/forgot-password', [body('email').isEmail()], validate, ctrl.forgotPassword);
+router.post('/reset-password',  ctrl.resetPassword);
+
 router.put('/profile',
   authenticate,
   [
