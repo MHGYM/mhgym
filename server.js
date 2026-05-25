@@ -2,7 +2,7 @@ require('dotenv').config();
 const app          = require('./src/app');
 const ensureSchema = require('./scripts/ensure-schema');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // ── Global crash guards ──────────────────────────────────────────────────────
 // Node 20 crashes the process on unhandled rejections — log them clearly
