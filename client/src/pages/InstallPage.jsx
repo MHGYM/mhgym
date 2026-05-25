@@ -136,7 +136,7 @@ export default function InstallPage() {
             MH
           </div>
           <div style={{ fontSize: '0.78rem', letterSpacing: '0.25em', color: '#888', textTransform: 'uppercase' }}>
-            MH Gym · Rotterdam
+            MH Gym · Soest
           </div>
         </div>
 
