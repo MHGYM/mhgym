@@ -12,6 +12,7 @@ import AdminPage from './pages/AdminPage'
 import PersonalTrainingPage from './pages/PersonalTrainingPage'
 import AgendaPage from './pages/AgendaPage'
 import CommunityPage from './pages/CommunityPage'
+import MayaChatWidget from './components/MayaChatWidget'
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+      <MayaChatWidget />
     </AuthProvider>
   )
 }

@@ -478,7 +478,7 @@ export default function AgendaPage() {
       {/* ── Event detail popup ── */}
       {detail && (
         <div className="modal-overlay" onClick={() => setDetail(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth:400 }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()} style={{ maxWidth:400 }}>
             <div className="modal-header">
               <h3>{detail.label}</h3>
               <button className="btn-icon" onClick={() => setDetail(null)}><X size={18}/></button>
@@ -614,7 +614,7 @@ export default function AgendaPage() {
       {/* ── VT aanvraag modal (lid) ── */}
       {vtReqSlot && (
         <div className="modal-overlay" onClick={() => setVtReqSlot(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth:380 }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()} style={{ maxWidth:380 }}>
             <div className="modal-header">
               <h3>Vrij Trainen aanvragen</h3>
               <button className="btn-icon" onClick={() => setVtReqSlot(null)}><X size={18}/></button>
@@ -654,7 +654,8 @@ export default function AgendaPage() {
                   <p style={{ fontSize:'0.82rem', color:'var(--text-muted)' }}>
                     De admin bevestigt je aanvraag zo snel mogelijk. Je ontvangt een melding.
                   </p>
-                  <button className="btn btn-primary" onClick={requestVt} disabled={vtSaving}>
+                  <button className="btn btn-primary" onClick={requestVt} disabled={vtSaving}
+                    style={{ touchAction: 'manipulation' }}>
                     {vtSaving ? 'Bezig...' : 'Aanvraag indienen'}
                   </button>
                 </>

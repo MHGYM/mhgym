@@ -171,6 +171,7 @@ export default function CommunityPage() {
   const [formTitle,  setFormTitle]  = useState('')
   const [formBody,   setFormBody]   = useState('')
   const [formImage,  setFormImage]  = useState('')
+  const [imageLoading, setImageLoading] = useState(false)
   const [formPush,   setFormPush]   = useState(false)
   const [posting,    setPosting]    = useState(false)
   const [postError,  setPostError]  = useState('')
@@ -222,7 +223,7 @@ export default function CommunityPage() {
       })
       setPosts(prev => [r.data.post, ...prev])
       setShowForm(false)
-      setFormTitle(''); setFormBody(''); setFormImage(''); setFormPush(false)
+      setFormTitle(''); setFormBody(''); setFormImage(''); setFormPush(false); setImageLoading(false)
     } catch (e) { setPostError(e.response?.data?.error || 'Fout bij plaatsen.') }
     setPosting(false)
   }
@@ -262,8 +263,34 @@ export default function CommunityPage() {
               <textarea className="input" rows={4} value={formBody} onChange={e => setFormBody(e.target.value)} placeholder="Schrijf hier je bericht…" style={{ resize:'vertical' }}/>
             </div>
             <div>
-              <label className="input-label">Afbeelding URL (optioneel)</label>
-              <input className="input" value={formImage} onChange={e => setFormImage(e.target.value)} placeholder="https://…"/>
+              <label className="input-label">Afbeelding (optioneel)</label>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="input"
+                style={{ padding: '0.4rem 0.75rem', cursor: 'pointer' }}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  setImageLoading(true)
+                  const reader = new FileReader()
+                  reader.onload = ev => { setFormImage(ev.target.result); setImageLoading(false) }
+                  reader.onerror = () => { alert('Afbeelding laden mislukt.'); setImageLoading(false) }
+                  reader.readAsDataURL(file)
+                }}
+              />
+              {imageLoading && <p style={{ fontSize:'0.8rem', color:'var(--text-muted)', marginTop:'0.25rem' }}>Afbeelding laden…</p>}
+              {formImage && !imageLoading && (
+                <div style={{ marginTop:'0.5rem', position:'relative', display:'inline-block' }}>
+                  <img src={formImage} alt="Preview" style={{ maxHeight:120, borderRadius:6, display:'block' }}/>
+                  <button onClick={() => setFormImage('')} style={{
+                    position:'absolute', top:4, right:4, background:'rgba(0,0,0,0.6)',
+                    border:'none', borderRadius:'50%', width:22, height:22, cursor:'pointer',
+                    color:'#fff', fontSize:'0.75rem', display:'flex', alignItems:'center', justifyContent:'center',
+                  }}>✕</button>
+                </div>
+              )}
             </div>
             {isAdmin && (
               <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', cursor:'pointer', fontSize:'0.875rem' }}>

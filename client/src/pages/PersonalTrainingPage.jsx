@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   User, Clock, Calendar, ChevronLeft, ChevronRight,
   Check, AlertCircle, ArrowRight, X, CreditCard, Shield, Dumbbell,
@@ -262,7 +262,8 @@ function BookingModal({ slot, balance, onClose, onBooked }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}
+      onTouchEnd={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 440, width: '100%' }}>
         <div className="modal-header" style={{ marginBottom: '1.25rem' }}>
           <h3>PT Sessie boeken</h3>
@@ -314,7 +315,8 @@ function BookingModal({ slot, balance, onClose, onBooked }) {
 
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <button className="btn btn-ghost btn-full" onClick={onClose}>Annuleren</button>
-          <button className="btn btn-primary btn-full" onClick={book} disabled={saving}>
+          <button className="btn btn-primary btn-full" onClick={book} disabled={saving}
+            style={{ touchAction: 'manipulation' }}>
             {saving ? <span className="spinner spinner-sm" /> : 'Boeken (wacht op bevestiging)'}
           </button>
         </div>
@@ -521,6 +523,10 @@ export default function PersonalTrainingPage() {
 
   if (loading) return <div className="page loading-center"><div className="spinner" /></div>
 
+  // Deduplicate by id — guards against StrictMode double-effect or stale state
+  const uniquePackages  = useMemo(() => packages.filter((p,i,a) => a.findIndex(x=>x.id===p.id)===i), [packages])
+  const uniquePlans     = useMemo(() => plans.filter((p,i,a)    => a.findIndex(x=>x.id===p.id)===i), [plans])
+
   const hasPurchases     = balance?.purchases?.length > 0
   const hasSubscription  = balance?.subscription?.status === 'active'
   const totalRemaining   = balance?.total_remaining ?? 0
@@ -591,7 +597,7 @@ export default function PersonalTrainingPage() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-            {packages.map((pkg) => {
+            {uniquePackages.map((pkg) => {
               const isBest = pkg.lessons === 10
               return (
                 <div key={pkg.id} style={{
@@ -650,7 +656,7 @@ export default function PersonalTrainingPage() {
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-            {plans.map((plan) => {
+            {uniquePlans.map((plan) => {
               const isBest = plan.freq_per_week === 2
               return (
                 <div key={plan.id} style={{
