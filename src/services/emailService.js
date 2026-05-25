@@ -345,6 +345,195 @@ async function sendPasswordResetEmail({ to, firstName, resetUrl }) {
   await sendMail({ to, subject: 'MHGym — Wachtwoord resetten', html });
 }
 
+/**
+ * Welkomstmail voor door admin aangemaakte leden (incl. tijdelijk wachtwoord)
+ */
+async function sendAdminWelcomeEmail({ to, firstName, tempPassword, loginUrl }) {
+  const url = loginUrl || `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">Welkom bij MHGym, ${firstName}! 🥊</h2>
+        <p style="color:#ccc;line-height:1.6">
+          Je lidmaatschap is door onze administratie aangemaakt en is direct actief.
+          Je kunt hieronder inloggen op de MHGym app met je tijdelijke wachtwoord.
+        </p>
+
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <p style="color:#F5C200;font-weight:700;margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px">Inloggegevens</p>
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">E-mailadres</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${to}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Tijdelijk wachtwoord</td>
+                <td style="color:#F5C200;font-weight:700;text-align:right;font-family:monospace;font-size:1.1em">${tempPassword}</td></tr>
+          </table>
+        </div>
+
+        <div style="background:#1a0f00;border:1px solid #4a2a00;border-radius:8px;padding:16px;margin:16px 0">
+          <p style="color:#fbbf24;margin:0;font-size:13px;line-height:1.6">
+            <strong>⚠️ Wijzig je wachtwoord</strong> zodra je bent ingelogd. Ga naar Profiel → Wachtwoord wijzigen.
+          </p>
+        </div>
+
+        <div style="margin:24px 0;text-align:center">
+          <a href="${url}"
+             style="background:#F5C200;color:#000;padding:14px 32px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block;font-size:15px">
+            Inloggen op MHGym
+          </a>
+        </div>
+
+        <p style="color:#666;font-size:13px">
+          Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch het abonnementsbedrag afgeschreven.<br><br>
+          Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a>
+        </p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `Welkom bij MHGym, ${firstName}! — je account is klaar`, html });
+}
+
+/**
+ * Melding bij mislukte automatische betaling (voor het lid)
+ */
+async function sendPaymentFailedMemberEmail({ to, firstName, amount, membershipName }) {
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#ef4444;margin:0 0 12px">⚠️ Betaling mislukt</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName},</p>
+        <p style="color:#ccc;line-height:1.6">
+          Je automatische incasso van <strong style="color:#F5C200">€${Number(amount).toFixed(2)}</strong>
+          voor je <strong>${membershipName || 'MHGym lidmaatschap'}</strong> is helaas mislukt.
+        </p>
+
+        <div style="background:#1a0000;border:1px solid #4a0000;border-radius:8px;padding:16px;margin:20px 0">
+          <p style="color:#fca5a5;margin:0;font-size:13px;line-height:1.6">
+            Je lidmaatschap is tijdelijk gepauzeerd. Zorg dat je rekening voldoende saldo heeft
+            of neem contact met ons op zodat we een oplossing kunnen vinden.
+          </p>
+        </div>
+
+        <p style="color:#ccc;font-size:14px;line-height:1.6">
+          Wat kun je doen?
+        </p>
+        <ul style="color:#ccc;font-size:13px;line-height:1.8;padding-left:20px">
+          <li>Controleer het saldo op je rekening</li>
+          <li>Neem contact op via <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a></li>
+          <li>Ga naar de gym voor een persoonlijk gesprek</li>
+        </ul>
+
+        <p style="color:#666;font-size:13px;margin-top:24px">
+          Tot snel! Team MHGym 💪
+        </p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — betaling mislukt, je lidmaatschap is gepauzeerd`, html });
+}
+
+/**
+ * Melding bij mislukte betaling (voor de admin)
+ */
+async function sendPaymentFailedAdminEmail({ memberName, memberEmail, amount, membershipName, userId }) {
+  const adminEmail = process.env.ADMIN_EMAIL || 'info@mhgym.nl';
+  const appUrl = process.env.FRONTEND_URL || 'https://app.mhgym.nl';
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#ef4444;margin:0 0 12px">⚠️ Mollie betaling mislukt</h2>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Lid</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${memberName}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">E-mail</td>
+                <td style="color:#ccc;text-align:right">${memberEmail}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Bedrag</td>
+                <td style="color:#ef4444;font-weight:700;text-align:right">€${Number(amount).toFixed(2)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Lidmaatschap</td>
+                <td style="color:#fff;text-align:right">${membershipName || '—'}</td></tr>
+          </table>
+        </div>
+        <p style="color:#ccc;font-size:13px;line-height:1.6">
+          Het lidmaatschap is automatisch gepauzeerd. Bekijk het lid in het admin panel.
+        </p>
+        <div style="margin:24px 0;text-align:center">
+          <a href="${appUrl}/admin"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Naar admin panel
+          </a>
+        </div>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to: adminEmail, subject: `[MHGym Admin] Betaling mislukt: ${memberName} — €${Number(amount).toFixed(2)}`, html });
+}
+
+/**
+ * Melding bij chargeback (voor het lid)
+ */
+async function sendChargebackMemberEmail({ to, firstName, amount }) {
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#ef4444;margin:0 0 12px">🔴 Terugboeking geregistreerd</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName},</p>
+        <p style="color:#ccc;line-height:1.6">
+          Er is een terugboeking (chargeback) van <strong style="color:#F5C200">€${Number(amount).toFixed(2)}</strong>
+          geregistreerd op jouw MHGym abonnement. Je lidmaatschap is hierom gepauzeerd.
+        </p>
+        <p style="color:#ccc;font-size:14px;line-height:1.6">
+          Neem zo snel mogelijk contact met ons op om dit te bespreken:
+          <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a>
+        </p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — terugboeking ontvangen, lidmaatschap gepauzeerd`, html });
+}
+
+/**
+ * Melding bij chargeback (voor de admin)
+ */
+async function sendChargebackAdminEmail({ memberName, memberEmail, amount }) {
+  const adminEmail = process.env.ADMIN_EMAIL || 'info@mhgym.nl';
+  const appUrl = process.env.FRONTEND_URL || 'https://app.mhgym.nl';
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#ef4444;margin:0 0 12px">🔴 Chargeback ontvangen</h2>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Lid</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${memberName}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">E-mail</td>
+                <td style="color:#ccc;text-align:right">${memberEmail}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Terugboeking</td>
+                <td style="color:#ef4444;font-weight:700;text-align:right">€${Number(amount).toFixed(2)}</td></tr>
+          </table>
+        </div>
+        <p style="color:#ccc;font-size:13px">Lidmaatschap is gepauzeerd. Actie vereist!</p>
+        <div style="margin:24px 0;text-align:center">
+          <a href="${appUrl}/admin"
+             style="background:#ef4444;color:#fff;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Naar admin panel
+          </a>
+        </div>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to: adminEmail, subject: `[MHGym Admin] ⚠️ CHARGEBACK: ${memberName} — €${Number(amount).toFixed(2)}`, html });
+}
+
 // Generic sendEmail wrapper for admin controller
 async function sendEmail({ to, subject, html }) {
   return sendMail({ to, subject, html });
@@ -354,4 +543,7 @@ module.exports = {
   sendWelcomeEmail, sendMembershipConfirmation, sendOrderConfirmation,
   sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail,
   sendPasswordResetEmail, sendEmail,
+  sendAdminWelcomeEmail,
+  sendPaymentFailedMemberEmail, sendPaymentFailedAdminEmail,
+  sendChargebackMemberEmail, sendChargebackAdminEmail,
 };

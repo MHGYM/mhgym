@@ -8,6 +8,7 @@ router.use(authenticate, requireAdmin);
 router.get('/stats', ctrl.getStats);
 
 // ── Leden ───────────────────────────────────────────────────────────────────
+router.post('/members/create-sepa',       ctrl.createMemberWithSepa);
 router.get('/members',                    ctrl.listMembers);
 router.get('/members/:id',                ctrl.getMember);
 router.put('/members/:id/role',           ctrl.setMemberRole);

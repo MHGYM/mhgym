@@ -1,6 +1,11 @@
+const crypto = require('crypto');
 const mollieClient = require('../config/mollie');
 const db = require('../config/database');
-const { sendMembershipConfirmation, sendOrderConfirmation, sendPtPackageConfirmationEmail } = require('../services/emailService');
+const {
+  sendMembershipConfirmation, sendOrderConfirmation, sendPtPackageConfirmationEmail,
+  sendPaymentFailedMemberEmail, sendPaymentFailedAdminEmail,
+  sendChargebackMemberEmail, sendChargebackAdminEmail,
+} = require('../services/emailService');
 const { PT_PACKAGES, PT_PLANS, sendPush } = require('./ptController');
 
 // ── Hulpfuncties ─────────────────────────────────────────────────────────────
@@ -107,9 +112,28 @@ const startCheckout = async (req, res) => {
   res.json({ checkout_url: payment.getCheckoutUrl(), payment_id: payment.id });
 };
 
+// ── Webhook signature helper ──────────────────────────────────────────────────
+
+function verifyMollieSignature(req) {
+  const secret = process.env.MOLLIE_WEBHOOK_SECRET;
+  if (!secret) return true; // Skip verification if not configured
+  const signature = req.headers['x-mollie-signature'];
+  if (!signature) return false;
+  const rawBody = req.rawBody;
+  if (!rawBody) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'));
+}
+
 // ── POST /api/payments/webhook  — Mollie callback ────────────────────────────
 
 const webhook = async (req, res) => {
+  // Verify Mollie webhook signature (skipped if MOLLIE_WEBHOOK_SECRET not set)
+  if (!verifyMollieSignature(req)) {
+    console.warn('[Webhook] Ongeldige Mollie handtekening — verzoek geweigerd');
+    return res.status(400).send('Ongeldige handtekening.');
+  }
+
   const molliePaymentId = req.body?.id;
   if (!molliePaymentId) return res.status(400).send('Geen payment ID.');
 
@@ -120,13 +144,37 @@ const webhook = async (req, res) => {
     return res.status(404).send('Mollie betaling niet gevonden.');
   }
 
-  // Update lokale status
+  // Update lokale status (or create placeholder for subscription payments without a local record)
   const localRes = await db.execute({
     sql: 'SELECT * FROM payments WHERE mollie_payment_id = ?',
     args: [molliePaymentId],
   });
-  const localPayment = localRes.rows[0];
-  if (!localPayment) return res.status(404).send('Lokale betaling niet gevonden.');
+  let localPayment = localRes.rows[0];
+
+  // For recurring subscription payments created by Mollie, there may be no local record yet.
+  // Create a minimal placeholder so we can process the webhook.
+  if (!localPayment && molliePayment.metadata?.type === 'subscription_payment') {
+    const meta = molliePayment.metadata || {};
+    const userId = parseInt(meta.user_id || 0);
+    const membershipId = parseInt(meta.membership_id || 0);
+    if (userId) {
+      await db.execute({
+        sql: `INSERT INTO payments (user_id, mollie_payment_id, amount, description, type, membership_id, status)
+              VALUES (?, ?, ?, ?, 'membership', ?, ?)`,
+        args: [userId, molliePaymentId, molliePayment.amount?.value || '0.00',
+               molliePayment.description || 'Maandelijkse contributie',
+               membershipId || null, molliePayment.status],
+      });
+      const refreshed = await db.execute({ sql: 'SELECT * FROM payments WHERE mollie_payment_id = ?', args: [molliePaymentId] });
+      localPayment = refreshed.rows[0];
+    }
+  }
+
+  if (!localPayment) {
+    // Unknown payment — return 200 to prevent Mollie from retrying endlessly
+    console.warn(`[Webhook] Onbekende betaling ${molliePaymentId} genegeerd`);
+    return res.status(200).send('OK');
+  }
 
   await db.execute({
     sql: `UPDATE payments SET status = ?, updated_at = datetime('now') WHERE mollie_payment_id = ?`,
@@ -359,6 +407,98 @@ const webhook = async (req, res) => {
 
       sendPush(userId, 'PT Abonnement actief! 💪', `Je ${plan.label} PT-abonnement is geactiveerd. Boek je eerste sessie!`);
       console.log(`[PT] Abonnement ${plan.label} geactiveerd voor user ${userId}`);
+    }
+  }
+
+  // ── Mislukte betaling → pauzeer lidmaatschap + notificeer ────────────────
+  if (molliePayment.status === 'failed' && localPayment.status !== 'failed') {
+    const userId     = parseInt(molliePayment.metadata?.user_id || localPayment.user_id);
+    const amount     = molliePayment.amount?.value || localPayment.amount || '0.00';
+
+    const uRes = await db.execute({ sql: 'SELECT * FROM users WHERE id = ?', args: [userId] });
+    const user = uRes.rows[0];
+
+    if (user) {
+      // Pauzeer lidmaatschap
+      await db.execute({
+        sql: `UPDATE users SET membership_paused = 1, membership_paused_reason = 'Automatisch gepauzeerd wegens mislukte Mollie betaling', updated_at = datetime('now') WHERE id = ?`,
+        args: [userId],
+      });
+
+      // Haal actief lidmaatschap op voor naam
+      const memRes = await db.execute({
+        sql: `SELECT m.name FROM user_memberships um LEFT JOIN memberships m ON m.id = um.membership_id WHERE um.user_id = ? AND um.status IN ('active','cancelling') LIMIT 1`,
+        args: [userId],
+      });
+      const membershipName = memRes.rows[0]?.name || 'MHGym lidmaatschap';
+
+      // Registreer in payment_failures tabel
+      await db.execute({
+        sql: `INSERT INTO payment_failures (user_id, amount, description, mollie_payment_id, status, failure_count)
+              VALUES (?, ?, ?, ?, 'open', 1)
+              ON CONFLICT DO NOTHING`,
+        args: [userId, amount, molliePayment.description || membershipName, molliePaymentId],
+      }).catch(() => {
+        // payment_failures ON CONFLICT not supported in all SQLite versions — fallback insert
+        return db.execute({
+          sql: `INSERT OR IGNORE INTO payment_failures (user_id, amount, description, mollie_payment_id, status, failure_count)
+                VALUES (?, ?, ?, ?, 'open', 1)`,
+          args: [userId, amount, molliePayment.description || membershipName, molliePaymentId],
+        });
+      });
+
+      // Stuur e-mails
+      sendPaymentFailedMemberEmail({
+        to: user.email, firstName: user.first_name, amount, membershipName,
+      }).catch(e => console.error('[Email] payment failed member:', e.message));
+
+      sendPaymentFailedAdminEmail({
+        memberName: `${user.first_name} ${user.last_name}`,
+        memberEmail: user.email, amount, membershipName, userId,
+      }).catch(e => console.error('[Email] payment failed admin:', e.message));
+
+      // Push notificatie
+      sendPush(userId, '⚠️ Betaling mislukt', `Je incasso van €${amount} is mislukt. Je lidmaatschap is gepauzeerd.`).catch(() => {});
+
+      console.log(`[Webhook] Betaling mislukt voor user ${userId} — lidmaatschap gepauzeerd`);
+    }
+  }
+
+  // ── Chargeback → pauzeer lidmaatschap + notificeer admin ─────────────────
+  if (molliePayment.status === 'charged_back' && localPayment.status !== 'charged_back') {
+    const userId = parseInt(molliePayment.metadata?.user_id || localPayment.user_id);
+    const amount = molliePayment.amount?.value || localPayment.amount || '0.00';
+
+    const uRes = await db.execute({ sql: 'SELECT * FROM users WHERE id = ?', args: [userId] });
+    const user = uRes.rows[0];
+
+    if (user) {
+      // Pauzeer lidmaatschap
+      await db.execute({
+        sql: `UPDATE users SET membership_paused = 1, membership_paused_reason = 'Terugboeking (chargeback) ontvangen', updated_at = datetime('now') WHERE id = ?`,
+        args: [userId],
+      });
+
+      // Registreer in payment_failures
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO payment_failures (user_id, amount, description, mollie_payment_id, status, failure_count)
+              VALUES (?, ?, ?, ?, 'open', 1)`,
+        args: [userId, amount, `Terugboeking: ${molliePayment.description || 'MHGym'}`, molliePaymentId],
+      });
+
+      // Notificeer
+      sendChargebackMemberEmail({
+        to: user.email, firstName: user.first_name, amount,
+      }).catch(e => console.error('[Email] chargeback member:', e.message));
+
+      sendChargebackAdminEmail({
+        memberName: `${user.first_name} ${user.last_name}`,
+        memberEmail: user.email, amount,
+      }).catch(e => console.error('[Email] chargeback admin:', e.message));
+
+      sendPush(userId, '🔴 Terugboeking geregistreerd', `Een terugboeking van €${amount} is ontvangen. Je lidmaatschap is gepauzeerd.`).catch(() => {});
+
+      console.log(`[Webhook] Chargeback voor user ${userId} — lidmaatschap gepauzeerd`);
     }
   }
 

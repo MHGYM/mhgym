@@ -36,6 +36,146 @@ const MEMBERSHIP_TYPES = [
 ]
 
 // ════════════════════════════════════════════════════════════════════
+// ADD MEMBER VIA IBAN MODAL
+// ════════════════════════════════════════════════════════════════════
+function AddMemberModal({ onClose, onCreated }) {
+  const [memberships,  setMemberships]  = useState([])
+  const [form, setForm] = useState({
+    first_name: '', last_name: '', email: '', phone: '', iban: '', membership_id: ''
+  })
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+  const [success,  setSuccess]  = useState('')
+
+  useEffect(() => {
+    api.get('/memberships').then(r => {
+      const mbs = r.data.memberships || []
+      // Only groepslessen (have a monthly price suitable for SEPA)
+      const suitable = mbs.filter(m => m.price_monthly && Number(m.price_monthly) > 0)
+      setMemberships(suitable)
+      if (suitable.length > 0 && !form.membership_id) {
+        setForm(f => ({ ...f, membership_id: suitable[0].id }))
+      }
+    }).catch(() => {})
+  }, [])
+
+  const set = field => e => setForm(f => ({ ...f, [field]: e.target.value }))
+
+  const submit = async () => {
+    setError('')
+    if (!form.first_name || !form.last_name || !form.email || !form.iban || !form.membership_id) {
+      setError('Vul alle verplichte velden in.')
+      return
+    }
+    // Basic IBAN format check
+    const ibanClean = form.iban.replace(/\s/g, '').toUpperCase()
+    if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(ibanClean)) {
+      setError('Ongeldig IBAN formaat.')
+      return
+    }
+    setLoading(true)
+    try {
+      const r = await api.post('/admin/members/create-sepa', {
+        ...form, iban: ibanClean,
+        membership_id: parseInt(form.membership_id),
+      })
+      setSuccess(r.data.message)
+      onCreated?.()
+    } catch (e) {
+      setError(e.response?.data?.error || 'Fout bij aanmaken lid.')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', display:'flex',
+      alignItems:'center', justifyContent:'center', zIndex:1000, padding:'1rem'
+    }}>
+      <div className="card" style={{width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto'}}>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem'}}>
+          <h2 style={{margin:0, fontSize:'1.1rem'}}>Nieuw lid via SEPA incasso</h2>
+          <button className="btn-icon" onClick={onClose}><X size={18}/></button>
+        </div>
+
+        {success ? (
+          <div>
+            <div style={{background:'var(--success-dim,rgba(34,197,94,0.1))',border:'1px solid var(--success,#22c55e)',borderRadius:'var(--r)',padding:'1.25rem',marginBottom:'1rem'}}>
+              <p style={{color:'var(--success,#22c55e)',fontWeight:600,margin:0}}>✓ {success}</p>
+              <p style={{color:'var(--text-muted)',fontSize:'0.85rem',margin:'0.5rem 0 0'}}>
+                De welkomstmail met tijdelijk wachtwoord is verstuurd. Het lid kan direct inloggen.
+              </p>
+            </div>
+            <button className="btn btn-primary" onClick={onClose}>Sluiten</button>
+          </div>
+        ) : (
+          <div style={{display:'flex', flexDirection:'column', gap:'0.75rem'}}>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem'}}>
+              <div>
+                <label className="input-label">Voornaam *</label>
+                <input className="input" value={form.first_name} onChange={set('first_name')} placeholder="Jan"/>
+              </div>
+              <div>
+                <label className="input-label">Achternaam *</label>
+                <input className="input" value={form.last_name} onChange={set('last_name')} placeholder="de Vries"/>
+              </div>
+            </div>
+            <div>
+              <label className="input-label">E-mailadres *</label>
+              <input className="input" type="email" value={form.email} onChange={set('email')} placeholder="jan@email.nl"/>
+            </div>
+            <div>
+              <label className="input-label">Telefoonnummer</label>
+              <input className="input" type="tel" value={form.phone} onChange={set('phone')} placeholder="+31 6 12345678"/>
+            </div>
+            <div>
+              <label className="input-label">IBAN *</label>
+              <input
+                className="input"
+                value={form.iban}
+                onChange={set('iban')}
+                placeholder="NL91 ABNA 0417 1643 00"
+                style={{fontFamily:'monospace', letterSpacing:'0.05em'}}
+              />
+              <p style={{fontSize:'0.75rem', color:'var(--text-muted)', marginTop:3}}>
+                SEPA incasso — wordt maandelijks automatisch afgeschreven
+              </p>
+            </div>
+            <div>
+              <label className="input-label">Abonnement *</label>
+              <select className="input" value={form.membership_id} onChange={set('membership_id')}>
+                {memberships.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.category} — {m.name} · €{Number(m.price_monthly).toFixed(2)}/mnd
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{background:'var(--surface-2)', borderRadius:'var(--r)', padding:'0.75rem', fontSize:'0.8rem', color:'var(--text-muted)', lineHeight:1.6}}>
+              <strong style={{color:'var(--text-2)'}}>Wat er gebeurt:</strong><br/>
+              1. Account aangemaakt met tijdelijk wachtwoord<br/>
+              2. Mollie klant + SEPA mandate aangemaakt<br/>
+              3. Recurring subscription gestart (volgende maand)<br/>
+              4. Welkomstmail verstuurd naar het lid
+            </div>
+
+            {error && <p style={{color:'var(--error)', fontSize:'0.85rem', margin:0}}>{error}</p>}
+
+            <div style={{display:'flex', gap:'0.75rem', paddingTop:'0.25rem'}}>
+              <button className="btn btn-primary" onClick={submit} disabled={loading} style={{flex:1}}>
+                {loading ? <span className="spinner spinner-sm"/> : <><Plus size={15}/> Lid aanmaken</>}
+              </button>
+              <button className="btn btn-ghost" onClick={onClose}>Annuleren</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
 // DASHBOARD
 // ════════════════════════════════════════════════════════════════════
 function DashboardSection() {
@@ -96,6 +236,7 @@ function LedenSection() {
   const [selected,      setSelected]      = useState(null)
   const [detail,        setDetail]        = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
   const [showAssign,    setShowAssign]    = useState(false)
   const [assignType,    setAssignType]    = useState(MEMBERSHIP_TYPES[0].key)
   const [assignPrice,   setAssignPrice]   = useState('')
@@ -192,11 +333,22 @@ function LedenSection() {
 
   return (
     <div style={{display:'grid', gridTemplateColumns: selected ? '320px 1fr' : '1fr', gap:'1.5rem'}}>
+      {showAddMember && (
+        <AddMemberModal
+          onClose={() => setShowAddMember(false)}
+          onCreated={() => { loadMembers(search) }}
+        />
+      )}
       {/* Lijst */}
       <div>
-        <div className="search-box" style={{marginBottom:'1rem'}}>
-          <Search size={16} style={{color:'var(--text-muted)'}}/>
-          <input className="search-input" placeholder="Zoek naam of e-mail…" value={search} onChange={e => handleSearch(e.target.value)}/>
+        <div style={{display:'flex', gap:'0.5rem', marginBottom:'1rem', alignItems:'center'}}>
+          <div className="search-box" style={{flex:1, margin:0}}>
+            <Search size={16} style={{color:'var(--text-muted)'}}/>
+            <input className="search-input" placeholder="Zoek naam of e-mail…" value={search} onChange={e => handleSearch(e.target.value)}/>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowAddMember(true)} title="Nieuw lid via SEPA incasso">
+            <Plus size={14}/> SEPA
+          </button>
         </div>
         {loading && <p style={{color:'var(--text-muted)',fontSize:'0.875rem'}}>Laden…</p>}
         <div style={{display:'flex',flexDirection:'column',gap:'0.4rem'}}>

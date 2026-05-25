@@ -1,6 +1,8 @@
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 const { sendPush } = require('./ptController');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail, sendAdminWelcomeEmail } = require('../services/emailService');
 
 // ── Lidmaatschapstypes (constanten) ────────────────────────────────────────
 const MEMBERSHIP_TYPES = [
@@ -268,6 +270,140 @@ const addPtLessons = async (req, res) => {
     });
   }
   res.json({ message: `${lessons} PT lessen toegevoegd.` });
+};
+
+/**
+ * Admin maakt handmatig een nieuw lid aan via IBAN + kiest abonnement.
+ * - Genereert tijdelijk wachtwoord
+ * - Maakt Mollie klant aan
+ * - Legt SEPA mandate vast
+ * - Maakt Mollie recurring subscription aan (start volgende maand)
+ * - Activeer lidmaatschap direct
+ * - Stuurt welkomstmail met tijdelijk wachtwoord
+ */
+const createMemberWithSepa = async (req, res) => {
+  const { first_name, last_name, email, phone, iban, membership_id } = req.body;
+
+  if (!first_name || !last_name || !email || !iban || !membership_id) {
+    return res.status(400).json({ error: 'Voornaam, achternaam, e-mail, IBAN en abonnement zijn verplicht.' });
+  }
+
+  // Controleer of e-mail al bestaat
+  const existing = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [email] });
+  if (existing.rows[0]) {
+    return res.status(409).json({ error: 'Er bestaat al een account met dit e-mailadres.' });
+  }
+
+  // Haal membership op
+  const mRes = await db.execute({ sql: 'SELECT * FROM memberships WHERE id = ?', args: [membership_id] });
+  const membership = mRes.rows[0];
+  if (!membership) return res.status(404).json({ error: 'Abonnement niet gevonden.' });
+
+  // Tijdelijk wachtwoord aanmaken
+  const tempPassword = crypto.randomBytes(5).toString('hex').toUpperCase(); // 10 tekens
+  const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+  // Gebruiker aanmaken
+  const userRes = await db.execute({
+    sql: `INSERT INTO users (email, password_hash, first_name, last_name, phone, role, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'member', datetime('now'), datetime('now'))`,
+    args: [email.toLowerCase().trim(), passwordHash, first_name.trim(), last_name.trim(), phone?.trim() || null],
+  });
+  const userId = Number(userRes.lastInsertRowid);
+
+  // Mollie klant aanmaken
+  let mollieCustomerId = null;
+  let subscriptionId   = null;
+
+  try {
+    const { createMollieClient } = require('@mollie/api-client');
+    if (process.env.MOLLIE_API_KEY && process.env.MOLLIE_API_KEY !== 'test_dummy') {
+      const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
+
+      // Klant aanmaken
+      const customer = await mollie.customers.create({
+        name:   `${first_name.trim()} ${last_name.trim()}`,
+        email:  email.toLowerCase().trim(),
+        locale: 'nl_NL',
+      });
+      mollieCustomerId = customer.id;
+
+      // Sla customer ID op bij user
+      await db.execute({ sql: `UPDATE users SET mollie_customer_id = ? WHERE id = ?`, args: [mollieCustomerId, userId] });
+
+      // SEPA mandate aanmaken via Mollie
+      await mollie.customerMandates.create(mollieCustomerId, {
+        method:          'directdebit',
+        consumerName:    `${first_name.trim()} ${last_name.trim()}`,
+        consumerAccount: iban.replace(/\s/g, '').toUpperCase(),
+      });
+
+      // Recurring subscription aanmaken (start volgende maand)
+      const nextMonth = new Date();
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
+      const startDate = nextMonth.toISOString().split('T')[0];
+
+      const subscription = await mollie.subscriptions.create({
+        customerId:  mollieCustomerId,
+        amount:      { currency: 'EUR', value: Number(membership.price_monthly).toFixed(2) },
+        interval:    '1 month',
+        startDate,
+        description: `MHGym ${membership.name} (${membership.category}) — maandelijks`,
+        webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
+        metadata: {
+          type:          'subscription_payment',
+          user_id:       String(userId),
+          membership_id: String(membership_id),
+        },
+      });
+      subscriptionId = subscription.id;
+      console.log(`[Admin] Mollie subscription aangemaakt: ${subscriptionId} voor nieuwe user ${userId}`);
+    } else {
+      console.warn('[Admin] Geen Mollie API key — SEPA mandate overgeslagen voor user', userId);
+    }
+  } catch (mollieErr) {
+    console.error('[Admin] Mollie fout bij aanmaken mandate/subscription:', mollieErr.message);
+    // We gaan door — lidmaatschap wordt alsnog geactiveerd, admin kan later corrigeren
+  }
+
+  // Lidmaatschap activeren
+  const now          = new Date();
+  const contractEnd  = new Date(now);
+  contractEnd.setMonth(contractEnd.getMonth() + (membership.minimum_months || 1));
+
+  await db.execute({
+    sql: `INSERT INTO user_memberships
+            (user_id, membership_id, status, start_date, contract_start, contract_end,
+             minimum_months, notice_period_months, mollie_subscription_id, agreed_to_terms, payment_type)
+          VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, 1, 'mollie')`,
+    args: [
+      userId, membership_id,
+      now.toISOString().split('T')[0],
+      now.toISOString().split('T')[0],
+      contractEnd.toISOString().split('T')[0],
+      membership.minimum_months || 1,
+      membership.notice_period_months || 1,
+      subscriptionId,
+    ],
+  });
+
+  // Welkomstmail sturen
+  const loginUrl = `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
+  sendAdminWelcomeEmail({
+    to: email.toLowerCase().trim(),
+    firstName: first_name.trim(),
+    tempPassword,
+    loginUrl,
+  }).catch(e => console.error('[Email] admin welcome:', e.message));
+
+  console.log(`[Admin] Nieuw lid aangemaakt: ${email} (user ${userId}) — subscription: ${subscriptionId || 'geen'}`);
+
+  res.status(201).json({
+    message: `Lid ${first_name} ${last_name} aangemaakt. Welkomstmail verstuurd naar ${email}.`,
+    user_id: userId,
+    mollie_customer_id: mollieCustomerId,
+    subscription_id: subscriptionId,
+  });
 };
 
 const deleteMember = async (req, res) => {
@@ -610,7 +746,7 @@ const pauseMembershipFromFailure = async (req, res) => {
 module.exports = {
   MEMBERSHIP_TYPES,
   listMembers, getMember, setMemberRole, updateMemberNotes, pauseMembership,
-  assignMembership, markCashPaid, addPtLessons, deleteMember,
+  assignMembership, markCashPaid, addPtLessons, deleteMember, createMemberWithSepa,
   adminListClasses, adminCreateClass, adminUpdateClass, adminCancelClass,
   adminListBookings,
   adminListPayments,
