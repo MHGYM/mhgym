@@ -425,18 +425,40 @@ async function ensureSchema() {
   ];
   for (const sql of patches) { await run(sql); }
 
-  // ── Seed membership tiers (idempotent) ───────────────────────────────────────
-  await db.execute(`
-    INSERT OR IGNORE INTO memberships
-      (name, category, duration_months, price_monthly, minimum_months, notice_period_months, max_bookings_per_month, description, features)
-    VALUES
-      ('Jaar abonnement',      'Jeugd',      12, 45, 12, 1, -1, 'Jaarlijks jeugdabonnement',    '["Onbeperkt sporten","Jaarlijks abonnement","Laagste maandprijs","Alle faciliteiten","App toegang"]'),
-      ('Half jaar abonnement', 'Jeugd',       6, 50,  6, 1, -1, 'Halfjaarlijks jeugdabonnement','["Onbeperkt sporten","Half jaar abonnement","Alle faciliteiten","App toegang"]'),
-      ('Maand abonnement',     'Jeugd',       1, 55,  1, 1, -1, 'Flexibel maandelijks',         '["Onbeperkt sporten","Maandelijks opzegbaar","Maximale flexibiliteit","Alle faciliteiten","App toegang"]'),
-      ('Jaar abonnement',      'Volwassenen',12, 55, 12, 1, -1, 'Jaarlijks abonnement 16+',     '["Onbeperkt sporten","Jaarlijks abonnement","Laagste maandprijs","Alle faciliteiten","App toegang"]'),
-      ('Half jaar abonnement', 'Volwassenen', 6, 60,  6, 1, -1, 'Halfjaarlijks abonnement 16+', '["Onbeperkt sporten","Half jaar abonnement","Alle faciliteiten","App toegang"]'),
-      ('Maand abonnement',     'Volwassenen', 1, 65,  1, 1, -1, 'Flexibel maandelijks abonnement 16+','["Onbeperkt sporten","Maandelijks opzegbaar","Maximale flexibiliteit","Alle faciliteiten","App toegang"]')
+  // ── Seed membership tiers (truly idempotent) ─────────────────────────────────
+  // The memberships table has no UNIQUE constraint on business columns, so
+  // INSERT OR IGNORE would silently insert a duplicate set on every restart.
+  // Fix: first purge any duplicate rows (keep lowest id per unique combo),
+  // then only insert when the table is completely empty.
+
+  // Step 1 — remove duplicates created by previous buggy restarts.
+  // We keep the row with the lowest id for each (name, category, duration_months)
+  // and never touch rows that are referenced by a user_membership.
+  await run(`
+    DELETE FROM memberships
+    WHERE id NOT IN (
+      SELECT MIN(id) FROM memberships GROUP BY name, category, duration_months
+    )
+    AND id NOT IN (
+      SELECT DISTINCT membership_id FROM user_memberships WHERE membership_id IS NOT NULL
+    )
   `);
+
+  // Step 2 — seed only when the table is empty (prevents future duplicates).
+  const { rows: mbRows } = await db.execute('SELECT COUNT(*) AS n FROM memberships');
+  if (Number(mbRows[0].n) === 0) {
+    await db.execute(`
+      INSERT INTO memberships
+        (name, category, duration_months, price_monthly, minimum_months, notice_period_months, max_bookings_per_month, description, features)
+      VALUES
+        ('Jaar abonnement',      'Jeugd',       12, 45, 12, 1, -1, 'Jaarlijks jeugdabonnement',             '["Onbeperkt sporten","Jaarlijks abonnement","Laagste maandprijs","Alle faciliteiten","App toegang"]'),
+        ('Half jaar abonnement', 'Jeugd',         6, 50,  6, 1, -1, 'Halfjaarlijks jeugdabonnement',         '["Onbeperkt sporten","Half jaar abonnement","Alle faciliteiten","App toegang"]'),
+        ('Maand abonnement',     'Jeugd',         1, 55,  1, 1, -1, 'Flexibel maandelijks',                  '["Onbeperkt sporten","Maandelijks opzegbaar","Maximale flexibiliteit","Alle faciliteiten","App toegang"]'),
+        ('Jaar abonnement',      'Volwassenen',  12, 55, 12, 1, -1, 'Jaarlijks abonnement 16+',              '["Onbeperkt sporten","Jaarlijks abonnement","Laagste maandprijs","Alle faciliteiten","App toegang"]'),
+        ('Half jaar abonnement', 'Volwassenen',   6, 60,  6, 1, -1, 'Halfjaarlijks abonnement 16+',          '["Onbeperkt sporten","Half jaar abonnement","Alle faciliteiten","App toegang"]'),
+        ('Maand abonnement',     'Volwassenen',   1, 65,  1, 1, -1, 'Flexibel maandelijks abonnement 16+',   '["Onbeperkt sporten","Maandelijks opzegbaar","Maximale flexibiliteit","Alle faciliteiten","App toegang"]')
+    `);
+  }
 
   // ── Indexes ───────────────────────────────────────────────────────────────────
   const indexes = [
