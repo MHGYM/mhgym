@@ -13,12 +13,21 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
+// Trust Railway's reverse proxy so req.ip / req.secure / X-Forwarded-* work
+app.set('trust proxy', 1);
+
 // ── Security & parsing ──────────────────────────────────────────────────────
-app.use(helmet());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+// Relax helmet's default CSP so the Vite-built React assets can load
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// CORS: in production the frontend is served from the same origin, so we
+// reflect the request Origin (allows the Railway domain and same-origin
+// requests without hardcoding the URL). In dev, restrict to the Vite port.
+app.use(cors(
+  process.env.NODE_ENV === 'production'
+    ? { origin: true, credentials: true }
+    : { origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true }
+));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -46,8 +55,12 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(clientDist));
   // SPA fallback — use app.use() (not app.get('*')) because Express 5
   // path-to-regexp v8 no longer accepts bare '*' as a valid wildcard.
-  app.use((req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'));
+  // Pass next so sendFile errors (e.g. missing index.html) reach the
+  // global error handler instead of leaving the request hanging.
+  app.use((req, res, next) => {
+    res.sendFile(path.join(clientDist, 'index.html'), (err) => {
+      if (err) next(err);
+    });
   });
 }
 
