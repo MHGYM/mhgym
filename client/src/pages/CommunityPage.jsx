@@ -288,7 +288,6 @@ export default function CommunityPage() {
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="input"
                 style={{ padding: '0.4rem 0.75rem', cursor: 'pointer' }}
                 onChange={async e => {
