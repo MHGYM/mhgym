@@ -221,9 +221,10 @@ const assignMembership = async (req, res) => {
   if (mtype.category === 'pt' && mtype.lessons) {
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    const purchaseAmount = Number(admin_price) || (Number(mtype.price_per_lesson || 0) * Number(mtype.lessons || 0));
     await db.execute({
-      sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, status, expires_at) VALUES (?, ?, ?, ?, 0, 'paid', ?)`,
-      args: [req.params.id, mtype.key, mtype.lessons, mtype.lessons, expiresAt.toISOString().split('T')[0]],
+      sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, amount, status, expires_at) VALUES (?, ?, ?, ?, 0, ?, 'paid', ?)`,
+      args: [req.params.id, mtype.key, mtype.lessons, mtype.lessons, purchaseAmount, expiresAt.toISOString().split('T')[0]],
     });
   }
 
@@ -249,16 +250,16 @@ const markCashPaid = async (req, res) => {
 
 // Admin voegt handmatig PT lessen toe
 const addPtLessons = async (req, res) => {
-  const { lessons, notes } = req.body;
+  const { lessons, notes, amount: lessonAmount } = req.body;
   if (!lessons || lessons < 1) return res.status(400).json({ error: 'Geef een geldig aantal lessen op.' });
 
   const expiresAt = new Date();
   expiresAt.setFullYear(expiresAt.getFullYear() + 1);
 
   await db.execute({
-    sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, status, expires_at)
-          VALUES (?, 'admin_manual', ?, ?, 0, 'paid', ?)`,
-    args: [req.params.id, lessons, lessons, expiresAt.toISOString().split('T')[0]],
+    sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, amount, status, expires_at)
+          VALUES (?, 'admin_manual', ?, ?, 0, ?, 'paid', ?)`,
+    args: [req.params.id, lessons, lessons, Number(lessonAmount) || 0, expiresAt.toISOString().split('T')[0]],
   });
   if (notes) {
     await db.execute({

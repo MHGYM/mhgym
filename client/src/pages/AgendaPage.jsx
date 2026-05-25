@@ -16,10 +16,14 @@ function getMonday(d) {
   return date
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r }
-function toDateStr(d)  { return d.toISOString().split('T')[0] }
+// Use local date parts — avoids UTC midnight timezone shift that displaces days
+function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
 function timeToPx(hhmm){ const [h,m] = hhmm.split(':').map(Number); return (h*60+m)/60*HOUR_PX }
 function dtToPx(iso)   { const d = new Date(iso); return (d.getHours()*60+d.getMinutes())/60*HOUR_PX }
-function dtToDate(iso) { return new Date(iso).toISOString().split('T')[0] }
+// Extract date from ISO string directly — datetime-local is already local time
+function dtToDate(iso) { return iso ? iso.substring(0, 10) : '' }
 function durationPx(m) { return (m/60)*HOUR_PX }
 
 // Status → kleur / label mapping voor VT slots
@@ -65,13 +69,19 @@ export default function AgendaPage() {
   const [vtReqNote, setVtReqNote] = useState('')
   const [vtSaving,  setVtSaving]  = useState(false)
   const [vtError,   setVtError]   = useState('')
-  // Admin: slot aanmaken
-  const [showNewSlot, setShowNewSlot] = useState(false)
-  const [newSlot,     setNewSlot]     = useState({ date:'', start_time:'08:00', end_time:'10:00', max_bookings:10, notes:'' })
+  // Admin: VT slot aanmaken
+  const [showNewSlot,   setShowNewSlot]   = useState(false)
+  const [newSlot,       setNewSlot]       = useState({ date:'', start_time:'08:00', end_time:'10:00', max_bookings:10, notes:'' })
+  // Admin: PT slot aanmaken
+  const [showNewPtSlot, setShowNewPtSlot] = useState(false)
+  const [newPtSlot,     setNewPtSlot]     = useState({ date_time:'', duration_minutes:60, trainer:'Mohammed', notes:'' })
   // Admin: direct lid boeken
   const [directBook, setDirectBook]  = useState(null)  // {slot}
   const [members,    setMembers]      = useState([])
   const [selMember,  setSelMember]    = useState('')
+  // VT weekgebruik (leden)
+  const [vtWeekUsage, setVtWeekUsage] = useState(0)
+  const [vtWeekLimit, setVtWeekLimit] = useState(3)
 
   const scrollRef  = useRef(null)
   const touchStart = useRef(null)
@@ -84,7 +94,13 @@ export default function AgendaPage() {
   const reload = () => {
     setLoading(true)
     api.get(`/agenda?from=${from}&to=${to}`)
-      .then(r => setAgenda(r.data))
+      .then(r => {
+        setAgenda(r.data)
+        if (!isAdmin) {
+          setVtWeekUsage(r.data.vt_week_usage ?? 0)
+          setVtWeekLimit(r.data.vt_week_limit ?? 3)
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }
@@ -207,7 +223,7 @@ export default function AgendaPage() {
     } catch (e) { alert(e.response?.data?.error || 'Fout bij annuleren.') }
   }
 
-  // ── Admin: slot aanmaken ─────────────────────────────────────────────────────
+  // ── Admin: VT slot aanmaken ──────────────────────────────────────────────────
   const createSlot = async () => {
     if (!newSlot.date || !newSlot.start_time || !newSlot.end_time) {
       return alert('Vul alle velden in.')
@@ -216,6 +232,17 @@ export default function AgendaPage() {
       await api.post('/vt/admin/slots', newSlot)
       setShowNewSlot(false)
       setNewSlot({ date:'', start_time:'08:00', end_time:'10:00', max_bookings:10, notes:'' })
+      reload()
+    } catch (e) { alert(e.response?.data?.error || 'Fout') }
+  }
+
+  // ── Admin: PT slot aanmaken ──────────────────────────────────────────────────
+  const createPtSlot = async () => {
+    if (!newPtSlot.date_time) return alert('Vul datum en tijd in.')
+    try {
+      await api.post('/pt/slots', newPtSlot)
+      setShowNewPtSlot(false)
+      setNewPtSlot({ date_time:'', duration_minutes:60, trainer:'Mohammed', notes:'' })
       reload()
     } catch (e) { alert(e.response?.data?.error || 'Fout') }
   }
@@ -273,9 +300,26 @@ export default function AgendaPage() {
           <h1 className="agenda-title">Agenda</h1>
           <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
             {isAdmin && (
-              <button className="btn btn-primary btn-sm" onClick={() => setShowNewSlot(s => !s)}>
-                <Plus size={13}/> VT slot
-              </button>
+              <>
+                <button className="btn btn-primary btn-sm"
+                  onClick={() => { setShowNewPtSlot(s => !s); setShowNewSlot(false) }}>
+                  <Plus size={13}/> PT slot
+                </button>
+                <button className="btn btn-primary btn-sm"
+                  onClick={() => { setShowNewSlot(s => !s); setShowNewPtSlot(false) }}>
+                  <Plus size={13}/> VT slot
+                </button>
+              </>
+            )}
+            {!isAdmin && vtWeekLimit > 0 && (
+              <span style={{
+                fontSize:'0.78rem', padding:'3px 10px', borderRadius:12,
+                background: vtWeekUsage >= vtWeekLimit ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                color: vtWeekUsage >= vtWeekLimit ? 'var(--error)' : 'var(--success)',
+                fontWeight: 600,
+              }}>
+                {vtWeekUsage}/{vtWeekLimit} VT deze week
+              </span>
             )}
             <button className="btn btn-ghost btn-sm" onClick={() => setMonday(getMonday(new Date()))}>Vandaag</button>
             <button className="btn-icon" onClick={() => setMonday(m => addDays(m,-7))}><ChevronLeft size={18}/></button>
@@ -298,10 +342,44 @@ export default function AgendaPage() {
           ))}
         </div>
 
+        {/* Admin: nieuw PT slot form */}
+        {isAdmin && showNewPtSlot && (
+          <div className="card" style={{ marginTop:'1rem', padding:'1rem', borderColor:'rgba(239,68,68,0.4)' }}>
+            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem', color:'var(--error)' }}>PT slot aanmaken</h3>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:'0.6rem' }}>
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Datum & tijd</label>
+                <input className="input" type="datetime-local"
+                  value={newPtSlot.date_time} onChange={e => setNewPtSlot({...newPtSlot,date_time:e.target.value})}/>
+              </div>
+              <div>
+                <label className="input-label">Trainer</label>
+                <select className="input" value={newPtSlot.trainer} onChange={e => setNewPtSlot({...newPtSlot,trainer:e.target.value})}>
+                  {['Mohammed','Ecrin','Joep'].map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Duur (min)</label>
+                <input className="input" type="number" min="15" max="120" step="15"
+                  value={newPtSlot.duration_minutes} onChange={e => setNewPtSlot({...newPtSlot,duration_minutes:parseInt(e.target.value)})}/>
+              </div>
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Notities</label>
+                <input className="input" placeholder="Optioneel..."
+                  value={newPtSlot.notes} onChange={e => setNewPtSlot({...newPtSlot,notes:e.target.value})}/>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
+              <button className="btn btn-primary btn-sm" onClick={createPtSlot}><Check size={13}/> Aanmaken</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowNewPtSlot(false)}><X size={13}/> Annuleren</button>
+            </div>
+          </div>
+        )}
+
         {/* Admin: nieuw VT slot form */}
         {isAdmin && showNewSlot && (
-          <div className="card" style={{ marginTop:'1rem', padding:'1rem' }}>
-            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem' }}>VT slot aanmaken</h3>
+          <div className="card" style={{ marginTop:'1rem', padding:'1rem', borderColor:'rgba(34,197,94,0.4)' }}>
+            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem', color:'var(--success)' }}>VT slot aanmaken</h3>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))', gap:'0.6rem' }}>
               <div>
                 <label className="input-label">Datum</label>
@@ -549,17 +627,38 @@ export default function AgendaPage() {
                   {vtReqSlot.booking_count}/{vtReqSlot.max_bookings} plekken bezet
                 </p>
               </div>
-              <div>
-                <label className="input-label">Opmerking (optioneel)</label>
-                <input className="input" placeholder="Bijv. focusgebied…" value={vtReqNote} onChange={e => setVtReqNote(e.target.value)}/>
+
+              {/* Weekgebruik badge */}
+              <div style={{
+                display:'flex', alignItems:'center', justifyContent:'center',
+                padding:'0.5rem', borderRadius:8,
+                background: vtWeekUsage >= vtWeekLimit ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)',
+              }}>
+                <span style={{ fontSize:'0.82rem', fontWeight:600,
+                  color: vtWeekUsage >= vtWeekLimit ? 'var(--error)' : 'var(--success)' }}>
+                  {vtWeekUsage}/{vtWeekLimit} sessies deze week gebruikt
+                </span>
               </div>
-              {vtError && <p style={{ color:'var(--error)', fontSize:'0.85rem' }}>{vtError}</p>}
-              <p style={{ fontSize:'0.82rem', color:'var(--text-muted)' }}>
-                De admin bevestigt je aanvraag zo snel mogelijk. Je ontvangt een melding.
-              </p>
-              <button className="btn btn-primary" onClick={requestVt} disabled={vtSaving}>
-                {vtSaving ? 'Bezig...' : 'Aanvraag indienen'}
-              </button>
+
+              {vtWeekUsage >= vtWeekLimit ? (
+                <div style={{ background:'rgba(239,68,68,0.1)', border:'1px solid var(--error)', borderRadius:8, padding:'0.75rem', fontSize:'0.85rem', color:'var(--error)' }}>
+                  Je hebt je weeklimiet van {vtWeekLimit}x vrij trainen bereikt.
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="input-label">Opmerking (optioneel)</label>
+                    <input className="input" placeholder="Bijv. focusgebied…" value={vtReqNote} onChange={e => setVtReqNote(e.target.value)}/>
+                  </div>
+                  {vtError && <p style={{ color:'var(--error)', fontSize:'0.85rem' }}>{vtError}</p>}
+                  <p style={{ fontSize:'0.82rem', color:'var(--text-muted)' }}>
+                    De admin bevestigt je aanvraag zo snel mogelijk. Je ontvangt een melding.
+                  </p>
+                  <button className="btn btn-primary" onClick={requestVt} disabled={vtSaving}>
+                    {vtSaving ? 'Bezig...' : 'Aanvraag indienen'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

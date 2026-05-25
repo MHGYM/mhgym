@@ -126,11 +126,32 @@ const getAgenda = async (req, res) => {
     vtSlots = slotRes.rows.map(s => ({ ...s, type: 'vt_slot' }));
   }
 
+  // ── Weekgebruik VT (voor leden) ─────────────────────────────────────────────
+  let vtWeekUsage = 0;
+  if (!isAdmin) {
+    const now      = new Date();
+    const dow      = now.getDay() || 7;
+    const monday   = new Date(now);
+    monday.setDate(now.getDate() - dow + 1);
+    const sunday   = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const toLocal  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const weekRes  = await db.execute({
+      sql: `SELECT COUNT(*) as n FROM vrij_trainen_bookings
+            WHERE user_id = ? AND status IN ('requested','confirmed')
+              AND date >= ? AND date <= ?`,
+      args: [userId, toLocal(monday), toLocal(sunday)],
+    });
+    vtWeekUsage = Number(weekRes.rows[0].n);
+  }
+
   res.json({
     classes:          classRes.rows,
     pt_bookings:      ptRes.rows,
     pt_available:     ptAvailableRows,
     vt_slots:         vtSlots,
+    vt_week_usage:    vtWeekUsage,
+    vt_week_limit:    3,
   });
 };
 

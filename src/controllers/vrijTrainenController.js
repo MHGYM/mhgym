@@ -210,6 +210,32 @@ const requestSlot = async (req, res) => {
     return res.status(400).json({ error: 'Dit slot is al voorbij.' });
   }
 
+  // ── Max 1 uur per sessie ────────────────────────────────────────────────────
+  const [sh, sm] = slot.start_time.split(':').map(Number);
+  const [eh, em] = slot.end_time.split(':').map(Number);
+  const durationMin = (eh * 60 + em) - (sh * 60 + sm);
+  if (durationMin > 60) {
+    return res.status(400).json({ error: 'Je kunt maximaal 1 uur per sessie boeken.' });
+  }
+
+  // ── Max 3 sessies per week ──────────────────────────────────────────────────
+  const slotDate   = new Date(slot.date + 'T12:00:00'); // noon vermijdt timezone-shift
+  const dow        = slotDate.getDay() || 7;
+  const weekMon    = new Date(slotDate);
+  weekMon.setDate(slotDate.getDate() - dow + 1);
+  const weekSun    = new Date(weekMon);
+  weekSun.setDate(weekMon.getDate() + 6);
+  const toLocal    = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const weekCount  = await db.execute({
+    sql: `SELECT COUNT(*) as n FROM vrij_trainen_bookings
+          WHERE user_id = ? AND status IN ('requested','confirmed')
+            AND date >= ? AND date <= ?`,
+    args: [userId, toLocal(weekMon), toLocal(weekSun)],
+  });
+  if (Number(weekCount.rows[0].n) >= 3) {
+    return res.status(400).json({ error: 'Je hebt je weeklimiet van 3x vrij trainen bereikt.' });
+  }
+
   // Al een aanvraag/boeking?
   const existing = await db.execute({
     sql: `SELECT id FROM vrij_trainen_bookings WHERE slot_id = ? AND user_id = ? AND status NOT IN ('cancelled','declined')`,

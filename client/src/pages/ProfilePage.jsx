@@ -267,30 +267,18 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                {/* Cancel button */}
+                {/* Opzeggen info */}
                 {!isCancelling && (
                   <div style={{ marginTop: '0.5rem' }}>
-                    {contractDaysLeft > 0 ? (
-                      <div style={{
-                        padding: '0.65rem 0.85rem', borderRadius: 'var(--r)',
-                        background: 'var(--surface-2)', border: '1px solid var(--border)',
-                        fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5,
-                      }}>
-                        <Shield size={13} style={{ marginRight: '0.4rem', color: 'var(--text-muted)', verticalAlign: 'middle' }} />
-                        Opzeggen mogelijk vanaf {fmtDate(membership.contract_end)}
-                      </div>
-                    ) : (
-                      <button
-                        className="btn btn-danger btn-full btn-sm"
-                        onClick={cancelMembership}
-                        disabled={cancelling}
-                      >
-                        {cancelling
-                          ? <span className="spinner spinner-sm" />
-                          : <><X size={14} /> Lidmaatschap opzeggen</>
-                        }
-                      </button>
-                    )}
+                    <div style={{
+                      padding: '0.65rem 0.85rem', borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)', border: '1px solid var(--border)',
+                      fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5,
+                    }}>
+                      <Shield size={13} style={{ marginRight: '0.4rem', color: 'var(--text-muted)', verticalAlign: 'middle' }} />
+                      Wil je opzeggen? Neem dan contact op via{' '}
+                      <a href="mailto:info@mhgym.nl" style={{ color: 'var(--accent)' }}>info@mhgym.nl</a>
+                    </div>
                   </div>
                 )}
               </div>
