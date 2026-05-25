@@ -30,14 +30,23 @@ const webpush      = require('web-push');
 const { sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail } = require('../services/emailService');
 
 // ── VAPID instellen ──────────────────────────────────────────────────────────
-const VAPID_CONFIGURED = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+let VAPID_CONFIGURED = false;
 
-if (VAPID_CONFIGURED) {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:info@mhgym.nl',
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY,
-  );
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  try {
+    // web-push requires unpadded URL-safe Base64 — strip any trailing '=' characters
+    const pubKey  = process.env.VAPID_PUBLIC_KEY.replace(/=+$/, '');
+    const privKey = process.env.VAPID_PRIVATE_KEY.replace(/=+$/, '');
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'mailto:info@mhgym.nl',
+      pubKey,
+      privKey,
+    );
+    VAPID_CONFIGURED = true;
+    console.log('[Push] VAPID geconfigureerd.');
+  } catch (e) {
+    console.warn('[Push] Ongeldige VAPID keys — push notificaties uitgeschakeld:', e.message);
+  }
 } else {
   console.warn('[Push] VAPID keys niet geconfigureerd — push notificaties uitgeschakeld.');
 }
