@@ -127,19 +127,19 @@ router.all('/force-create-admin', async (req, res) => {
 
 const SCHEDULE = [
   // Maandag (dayOffset 0)
-  { dayOffset: 0, time: '16:00', duration: 60,  name: 'Kickboksen Kids',       instructor: 'Mohammed', capacity: 15 },
-  { dayOffset: 0, time: '19:00', duration: 60,  name: 'Kickboksen Recreanten', instructor: 'Mohammed', capacity: 20 },
-  { dayOffset: 0, time: '20:15', duration: 60,  name: 'Boksen Ladies-Only',    instructor: 'Ecrin',    capacity: 12 },
+  { dayOffset: 0, time: '16:00', duration: 60,  name: 'Kickboksen Kids',       instructor: 'Mohammed', capacity: 15, category: 'kickboksen'  },
+  { dayOffset: 0, time: '19:00', duration: 60,  name: 'Kickboksen Recreanten', instructor: 'Mohammed', capacity: 20, category: 'kickboksen'  },
+  { dayOffset: 0, time: '20:15', duration: 60,  name: 'Boksen Ladies-Only',    instructor: 'Ecrin',    capacity: 12, category: 'ladies-only' },
   // Dinsdag (dayOffset 1)
-  { dayOffset: 1, time: '17:00', duration: 60,  name: 'Jeugd',                 instructor: 'Mohammed', capacity: 15 },
-  { dayOffset: 1, time: '19:00', duration: 60,  name: 'Boksen Recreanten',     instructor: 'Mohammed', capacity: 20 },
+  { dayOffset: 1, time: '17:00', duration: 60,  name: 'Jeugd',                 instructor: 'Mohammed', capacity: 15, category: 'jeugd'       },
+  { dayOffset: 1, time: '19:00', duration: 60,  name: 'Boksen Recreanten',     instructor: 'Mohammed', capacity: 20, category: 'boksen'      },
   // Woensdag (dayOffset 2)
-  { dayOffset: 2, time: '20:00', duration: 60,  name: 'Kickboksen Ladies-Only',instructor: 'Ecrin',    capacity: 12 },
+  { dayOffset: 2, time: '20:00', duration: 60,  name: 'Kickboksen Ladies-Only',instructor: 'Ecrin',    capacity: 12, category: 'ladies-only' },
   // Donderdag (dayOffset 3)
-  { dayOffset: 3, time: '19:00', duration: 60,  name: 'Boksen Recreanten',     instructor: 'Mohammed', capacity: 20 },
+  { dayOffset: 3, time: '19:00', duration: 60,  name: 'Boksen Recreanten',     instructor: 'Mohammed', capacity: 20, category: 'boksen'      },
   // Vrijdag (dayOffset 4)
-  { dayOffset: 4, time: '16:00', duration: 60,  name: 'Boksen Kids',           instructor: 'Joep',     capacity: 15 },
-  { dayOffset: 4, time: '17:00', duration: 60,  name: 'Kickboksen Jeugd',      instructor: 'Joep',     capacity: 15 },
+  { dayOffset: 4, time: '16:00', duration: 60,  name: 'Boksen Kids',           instructor: 'Joep',     capacity: 15, category: 'boksen'      },
+  { dayOffset: 4, time: '17:00', duration: 60,  name: 'Kickboksen Jeugd',      instructor: 'Joep',     capacity: 15, category: 'kickboksen'  },
 ];
 
 router.all('/seed-schedule', async (req, res) => {
@@ -169,9 +169,9 @@ router.all('/seed-schedule', async (req, res) => {
       const dateTimeStr = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(h)}:${pad(m)}:00`;
 
       await db.execute({
-        sql: `INSERT INTO classes (name, instructor, date_time, duration_minutes, max_capacity, location)
-              VALUES (?, ?, ?, ?, ?, 'Seeded')`,
-        args: [cls.name, cls.instructor, dateTimeStr, cls.duration, cls.capacity],
+        sql: `INSERT INTO classes (name, instructor, date_time, duration_minutes, max_capacity, location, category)
+              VALUES (?, ?, ?, ?, ?, 'Seeded', ?)`,
+        args: [cls.name, cls.instructor, dateTimeStr, cls.duration, cls.capacity, cls.category],
       });
       inserted++;
     }
