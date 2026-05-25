@@ -8,8 +8,8 @@ async function start() {
   // Set up / verify database schema before accepting traffic
   await ensureSchema();
 
-  app.listen(PORT, () => {
-    console.log(`🏋️  MHGym API draait op http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🏋️  MHGym API draait op http://0.0.0.0:${PORT}`);
     console.log(`📋 Omgeving: ${process.env.NODE_ENV || 'development'}`);
   });
 }

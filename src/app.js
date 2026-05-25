@@ -44,8 +44,9 @@ app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() })
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '..', 'client', 'dist');
   app.use(express.static(clientDist));
-  // SPA fallback — send index.html for all non-API routes
-  app.get('*', (req, res) => {
+  // SPA fallback — use app.use() (not app.get('*')) because Express 5
+  // path-to-regexp v8 no longer accepts bare '*' as a valid wildcard.
+  app.use((req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
