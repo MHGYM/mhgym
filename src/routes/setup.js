@@ -50,4 +50,37 @@ router.all('/create-admin', async (req, res) => {
   });
 });
 
+// GET|POST /api/setup/reset-admin-password
+// Resets admin@mhgym.nl password to Welkom123! — open in browser, then delete this route.
+router.all('/reset-admin-password', async (req, res) => {
+  const email    = 'admin@mhgym.nl';
+  const password = 'Welkom123!';
+
+  const userRes = await db.execute({
+    sql: 'SELECT id, role FROM users WHERE email = ?',
+    args: [email],
+  });
+
+  if (userRes.rows.length === 0) {
+    return res.status(404).json({ error: `Gebruiker ${email} niet gevonden.` });
+  }
+
+  const user = userRes.rows[0];
+  const hash = await bcrypt.hash(password, 12);
+
+  await db.execute({
+    sql: `UPDATE users SET password = ?, role = 'admin', updated_at = datetime('now') WHERE id = ?`,
+    args: [hash, user.id],
+  });
+
+  console.log(`[Setup] Wachtwoord gereset voor ${email} (id=${user.id})`);
+
+  res.json({
+    message: `Wachtwoord van ${email} is gereset naar: ${password}`,
+    email,
+    password,
+    role: 'admin',
+  });
+});
+
 module.exports = router;
