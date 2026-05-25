@@ -83,4 +83,41 @@ router.all('/reset-admin-password', async (req, res) => {
   });
 });
 
+// GET|POST /api/setup/force-create-admin
+// Always creates or overwrites admin@mhgym.nl — no guards, no checks.
+// Open once in browser to guarantee the admin exists with the right password.
+router.all('/force-create-admin', async (req, res) => {
+  const email      = 'admin@mhgym.nl';
+  const password   = 'Welkom123!';
+  const first_name = 'Mohammed';
+  const last_name  = 'Admin';
+  const hash = await bcrypt.hash(password, 12);
+
+  // Delete any existing record for this email, then insert fresh
+  await db.execute({ sql: 'DELETE FROM users WHERE email = ?', args: [email] });
+
+  const result = await db.execute({
+    sql: `INSERT INTO users (email, password, first_name, last_name, role)
+          VALUES (?, ?, ?, ?, 'admin')`,
+    args: [email, hash, first_name, last_name],
+  });
+
+  const userId = Number(result.lastInsertRowid);
+  const token  = jwt.sign(
+    { id: userId, role: 'admin' },
+    process.env.JWT_SECRET || 'dev-secret',
+    { expiresIn: '7d' }
+  );
+
+  console.log(`[Setup] Admin geforceerd aangemaakt: ${email} (id=${userId})`);
+
+  res.status(201).json({
+    message: `Admin aangemaakt. Login met ${email} / ${password}`,
+    email,
+    password,
+    role: 'admin',
+    token,
+  });
+});
+
 module.exports = router;
