@@ -12,7 +12,7 @@ const db      = require('../config/database');
 
 const router = express.Router();
 
-router.post('/create-admin', async (req, res) => {
+router.all('/create-admin', async (req, res) => {
   // ── Guard: only works on an empty database ───────────────────────────────
   const existing = await db.execute('SELECT COUNT(*) AS n FROM users');
   if (Number(existing.rows[0].n) > 0) {
