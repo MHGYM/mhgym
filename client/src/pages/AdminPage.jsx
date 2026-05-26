@@ -1219,7 +1219,7 @@ function RoosterSection() {
   const [classes, setClasses] = useState([])
   const [tab,     setTab]     = useState('upcoming')
   const [showNew, setShowNew] = useState(false)
-  const [form,    setForm]    = useState({name:'',instructor:'Mohammed',category:'kickboksen-recreanten',date_time:'',duration_minutes:60,max_capacity:18,location:'Zaal A'})
+  const [form,    setForm]    = useState({name:'',instructor:'Mohammed',category:'kickboksen-recreanten',date_time:'',duration_minutes:60,max_capacity:18,location:'Zaal A',repeat_type:'none',repeat_weeks:4})
 
   useEffect(() => { api.get('/admin/classes').then(r => setClasses(r.data.classes)).catch(() => {}) }, [])
 
@@ -1227,10 +1227,21 @@ function RoosterSection() {
   const upcoming = classes.filter(c => new Date(c.date_time) > new Date() && c.status==='scheduled')
   const past     = classes.filter(c => new Date(c.date_time) <= new Date() || c.status!=='scheduled')
 
+  const intervalLabel = form.repeat_type === 'weekly' ? 'week' : '2 weken'
+  const repeatCount   = form.repeat_type !== 'none' ? Math.max(1, parseInt(form.repeat_weeks) || 4) : 1
+
   const createClass = async () => {
     try {
       const r = await api.post('/admin/classes', form)
-      setClasses(c => [r.data.class,...c]); setShowNew(false)
+      if (r.data.class) {
+        setClasses(c => [r.data.class, ...c])
+      } else {
+        // recurring — reload full list so all occurrences appear
+        const reload = await api.get('/admin/classes')
+        setClasses(reload.data.classes)
+        alert(r.data.message || `${r.data.count} lessen aangemaakt`)
+      }
+      setShowNew(false)
     } catch(e) { alert(e.response?.data?.error||'Fout') }
   }
   const cancelClass = async id => {
@@ -1259,8 +1270,29 @@ function RoosterSection() {
             <div><label className="input-label">Max deelnemers</label><input className="input" type="number" value={form.max_capacity} onChange={e=>setForm({...form,max_capacity:parseInt(e.target.value)})}/></div>
             <div><label className="input-label">Locatie</label><input className="input" value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></div>
           </div>
+          {/* Repeat options */}
+          <div style={{marginTop:'0.75rem',padding:'0.6rem 0.75rem',background:'var(--surface-3,rgba(255,255,255,0.04))',borderRadius:'var(--r)',display:'flex',alignItems:'center',gap:'1rem',flexWrap:'wrap'}}>
+            <label className="input-label" style={{margin:0,whiteSpace:'nowrap'}}>Herhaling:</label>
+            {[['none','Eenmalig'],['weekly','Wekelijks'],['biweekly','2-wekelijks']].map(([val,lbl]) => (
+              <label key={val} style={{display:'flex',alignItems:'center',gap:'0.35rem',cursor:'pointer',fontSize:'0.85rem'}}>
+                <input type="radio" name="repeat_type" value={val} checked={form.repeat_type===val} onChange={e=>setForm({...form,repeat_type:e.target.value})} style={{accentColor:'var(--primary)'}}/>
+                {lbl}
+              </label>
+            ))}
+            {form.repeat_type !== 'none' && (
+              <label style={{display:'flex',alignItems:'center',gap:'0.4rem',fontSize:'0.85rem',marginLeft:'auto'}}>
+                <input className="input" type="number" min={1} max={26} value={form.repeat_weeks} onChange={e=>setForm({...form,repeat_weeks:Math.min(26,Math.max(1,parseInt(e.target.value)||1))})} style={{width:'4rem',padding:'0.2rem 0.4rem'}}/>
+                <span style={{color:'var(--text-muted)'}}>× elke {intervalLabel}</span>
+              </label>
+            )}
+          </div>
+          {form.repeat_type !== 'none' && (
+            <p style={{fontSize:'0.78rem',color:'var(--primary)',margin:'0.4rem 0 0'}}>
+              Maakt <strong>{repeatCount}</strong> lessen aan (elke {intervalLabel}, zelfde dag &amp; tijd)
+            </p>
+          )}
           <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
-            <button className="btn btn-primary btn-sm" onClick={createClass}><Check size={13}/> Aanmaken</button>
+            <button className="btn btn-primary btn-sm" onClick={createClass}><Check size={13}/> {form.repeat_type!=='none'?`${repeatCount} lessen aanmaken`:'Aanmaken'}</button>
             <button className="btn btn-ghost btn-sm" onClick={() => setShowNew(false)}><X size={13}/> Annuleren</button>
           </div>
         </div>

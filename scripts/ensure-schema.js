@@ -413,6 +413,9 @@ async function ensureSchema() {
     `ALTER TABLE user_memberships ADD COLUMN last_quarter_paid TEXT`,
     `ALTER TABLE user_memberships ADD COLUMN quarter_reminder_sent INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE user_memberships ADD COLUMN fonds_member_id INTEGER REFERENCES fonds_members(id)`,
+    // classes — recurring support
+    `ALTER TABLE classes ADD COLUMN repeat_type TEXT NOT NULL DEFAULT 'none'`,
+    `ALTER TABLE classes ADD COLUMN repeat_group_id TEXT`,
     // vrij_trainen_bookings
     `ALTER TABLE vrij_trainen_bookings ADD COLUMN slot_id INTEGER REFERENCES vt_slots(id)`,
     // payment_failures

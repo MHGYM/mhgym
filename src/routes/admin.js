@@ -20,10 +20,11 @@ router.post('/members/:id/pt-lessons',    ctrl.addPtLessons);
 router.delete('/members/:id',             ctrl.deleteMember);
 
 // ── Lessen ───────────────────────────────────────────────────────────────────
-router.get('/classes',        ctrl.adminListClasses);
-router.post('/classes',       ctrl.adminCreateClass);
-router.put('/classes/:id',    ctrl.adminUpdateClass);
-router.delete('/classes/:id', ctrl.adminCancelClass);
+router.get('/classes',             ctrl.adminListClasses);
+router.post('/classes',            ctrl.adminCreateClass);
+router.put('/classes/:id',         ctrl.adminUpdateClass);
+router.delete('/classes/:id',      ctrl.adminCancelClass);
+router.get('/classes/:id/bookings', ctrl.adminGetClassBookings);
 
 // ── Boekingen ─────────────────────────────────────────────────────────────────
 router.get('/bookings', ctrl.adminListBookings);

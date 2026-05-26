@@ -17,12 +17,41 @@ const createSlot = async (req, res) => {
   if (!date || !start_time || !end_time) {
     return res.status(400).json({ error: 'date, start_time en end_time zijn verplicht.' });
   }
+
+  const toMins = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const toTime = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+  const startMins = toMins(start_time);
+  const endMins   = toMins(end_time);
+
+  if (startMins >= endMins) {
+    return res.status(400).json({ error: 'Eindtijd moet na begintijd liggen.' });
+  }
+
+  const maxB = max_bookings || 10;
+  const notesVal = notes || null;
+
+  // If block > 1 hour, auto-expand into individual 1-hour sub-slots
+  if (endMins - startMins > 60) {
+    const created = [];
+    for (let m = startMins; m < endMins; m += 60) {
+      const slotEnd = Math.min(m + 60, endMins);
+      const r = await db.execute({
+        sql: `INSERT INTO vt_slots (date, start_time, end_time, max_bookings, notes) VALUES (?, ?, ?, ?, ?)`,
+        args: [date, toTime(m), toTime(slotEnd), maxB, notesVal],
+      });
+      created.push({ id: Number(r.lastInsertRowid), date, start_time: toTime(m), end_time: toTime(slotEnd), max_bookings: maxB, status: 'available' });
+    }
+    return res.status(201).json({ slots: created, count: created.length });
+  }
+
+  // Single 1-hour (or less) slot
   const result = await db.execute({
     sql: `INSERT INTO vt_slots (date, start_time, end_time, max_bookings, notes) VALUES (?, ?, ?, ?, ?)`,
-    args: [date, start_time, end_time, max_bookings || 10, notes || null],
+    args: [date, start_time, end_time, maxB, notesVal],
   });
   const slot = await db.execute({ sql: 'SELECT * FROM vt_slots WHERE id = ?', args: [result.lastInsertRowid] });
-  res.status(201).json({ slot: slot.rows[0] });
+  return res.status(201).json({ slot: slot.rows[0], slots: [slot.rows[0]], count: 1 });
 };
 
 const deleteSlot = async (req, res) => {

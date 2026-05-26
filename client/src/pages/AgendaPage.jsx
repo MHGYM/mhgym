@@ -1,12 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronLeft, ChevronRight, X, Clock, User, Users, Check, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, Clock, User, Users, Check, Plus, Repeat, Trash2, RefreshCw } from 'lucide-react'
 import api from '../api'
 import { useAuth } from '../context/AuthContext'
 
 // ── Constanten ────────────────────────────────────────────────────────────────
-const DAY_NAMES  = ['ma','di','wo','do','vr','za','zo']
-const HOUR_PX    = 56   // hoogte per uur in pixels
-const TOTAL_PX   = HOUR_PX * 24
+const DAY_NAMES = ['ma','di','wo','do','vr','za','zo']
+const HOUR_PX   = 56
+const TOTAL_PX  = HOUR_PX * 24
+
+// Class categories used in MHGym
+const CLASS_CATS = [
+  'kickboksen-recreanten','kickboksen-kids','kickboksen-ladies-only','kickboksen-jeugd',
+  'boksen-recreanten','boksen-ladies-only','jeugd',
+]
+const TRAINERS = ['Mohammed','Ecrin','Joep']
 
 function getMonday(d) {
   const date = new Date(d)
@@ -16,47 +23,54 @@ function getMonday(d) {
   return date
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r }
-// Use local date parts — avoids UTC midnight timezone shift that displaces days
-function toDateStr(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-}
+function toDateStr(d)  { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 function timeToPx(hhmm){ const [h,m] = hhmm.split(':').map(Number); return (h*60+m)/60*HOUR_PX }
 function dtToPx(iso)   { const d = new Date(iso); return (d.getHours()*60+d.getMinutes())/60*HOUR_PX }
-// Extract date from ISO string directly — datetime-local is already local time
-function dtToDate(iso) { return iso ? iso.substring(0, 10) : '' }
+function dtToDate(iso) { return iso ? iso.substring(0,10) : '' }
 function durationPx(m) { return (m/60)*HOUR_PX }
 
-// Status → kleur / label mapping voor VT slots
-function vtSlotColor(slot) {
-  if (!slot) return { bg: 'rgba(100,100,100,0.5)', border: '#666', label: '' }
-  if (slot.my_status === 'confirmed' || slot.status_override === 'confirmed') {
-    return { bg: 'rgba(34,197,94,0.85)',  border: '#22c55e', label: 'Bevestigd' }
-  }
-  if (slot.my_status === 'requested' || slot.status_override === 'requested') {
-    return { bg: 'rgba(245,158,11,0.85)', border: '#f59e0b', label: 'Aangevraagd' }
-  }
-  const isFull = Number(slot.booking_count) >= Number(slot.max_bookings)
-  if (isFull) {
-    return { bg: 'rgba(100,100,100,0.5)', border: '#666', label: 'Vol' }
-  }
-  return { bg: 'rgba(34,197,94,0.3)',  border: '#22c55e', label: 'Beschikbaar' }
+// ── Color scheme ──────────────────────────────────────────────────────────────
+const COLORS = {
+  class:        { bg: 'rgba(245,194,0,0.9)',   border: '#f5c200' },  // gold
+  pt_confirmed: { bg: 'rgba(59,130,246,0.85)', border: '#3b82f6' },  // blue
+  pt_pending:   { bg: 'rgba(59,130,246,0.55)', border: '#3b82f6' },  // light blue
+  pt_available: { bg: 'rgba(59,130,246,0.2)',  border: '#3b82f6' },  // very light blue
+  vt_avail:     { bg: 'rgba(34,197,94,0.35)',  border: '#22c55e' },  // green
+  vt_requested: { bg: 'rgba(245,158,11,0.8)',  border: '#f59e0b' },  // amber
+  vt_confirmed: { bg: 'rgba(34,197,94,0.85)',  border: '#22c55e' },  // solid green
+  vt_full:      { bg: 'rgba(100,100,100,0.45)', border: '#666' },    // grey
 }
 
-// Status labels voor admin VT slot
+function vtSlotColor(slot) {
+  if (!slot) return COLORS.vt_full
+  if (slot.my_status === 'confirmed' || slot.status_override === 'confirmed') return COLORS.vt_confirmed
+  if (slot.my_status === 'requested' || slot.status_override === 'requested') return COLORS.vt_requested
+  if (Number(slot.booking_count) >= Number(slot.max_bookings)) return COLORS.vt_full
+  return COLORS.vt_avail
+}
+
 function vtAdminLabel(slot) {
-  const pending   = Number(slot.pending_count || 0)
+  const pending   = Number(slot.pending_count  || 0)
   const confirmed = Number(slot.confirmed_count || 0)
-  const isFull    = Number(slot.booking_count) >= Number(slot.max_bookings)
-  if (isFull)     return { label: 'Vol', color: '#ef4444' }
+  const isFull    = Number(slot.booking_count)  >= Number(slot.max_bookings)
+  if (isFull)     return { label: 'Vol',                    color: '#ef4444' }
   if (pending > 0) return { label: `${pending} aanvraag${pending>1?'en':''}`, color: '#f59e0b' }
-  if (confirmed > 0) return { label: 'Bevestigd', color: '#22c55e' }
+  if (confirmed > 0) return { label: 'Bevestigd',            color: '#22c55e' }
   return { label: 'Beschikbaar', color: '#22c55e' }
 }
 
-// Admin: VT slot aanmaken form
-const VT_HOUR_OPTIONS = []
-for (let h = 8; h <= 22; h++) VT_HOUR_OPTIONS.push(`${String(h).padStart(2,'0')}:00`)
+// Compute VT slot count preview for admin form
+function vtSlotCount(start, end) {
+  const toMins = t => { const [h,m] = t.split(':').map(Number); return h*60+m }
+  const diff = toMins(end) - toMins(start)
+  if (diff <= 0) return 0
+  return Math.ceil(diff / 60)
+}
 
+const VT_HOUR_OPTIONS = []
+for (let h = 6; h <= 23; h++) VT_HOUR_OPTIONS.push(`${String(h).padStart(2,'0')}:00`)
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function AgendaPage() {
   const { user } = useAuth()
   const isAdmin  = user?.role === 'admin'
@@ -64,22 +78,39 @@ export default function AgendaPage() {
   const [monday,    setMonday]    = useState(getMonday(new Date()))
   const [agenda,    setAgenda]    = useState({ classes:[], pt_bookings:[], pt_available:[], vt_slots:[] })
   const [loading,   setLoading]   = useState(true)
-  const [detail,    setDetail]    = useState(null)   // event detail popup
-  const [vtReqSlot, setVtReqSlot] = useState(null)   // slot die lid wil aanvragen
+  const [detail,    setDetail]    = useState(null)
+  const [vtReqSlot, setVtReqSlot] = useState(null)
   const [vtReqNote, setVtReqNote] = useState('')
   const [vtSaving,  setVtSaving]  = useState(false)
   const [vtError,   setVtError]   = useState('')
-  // Admin: VT slot aanmaken
-  const [showNewSlot,   setShowNewSlot]   = useState(false)
-  const [newSlot,       setNewSlot]       = useState({ date:'', start_time:'08:00', end_time:'10:00', max_bookings:10, notes:'' })
-  // Admin: PT slot aanmaken
+
+  // Admin: VT slot form
+  const [showNewSlot, setShowNewSlot] = useState(false)
+  const [newSlot,     setNewSlot]     = useState({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'' })
+
+  // Admin: PT slot form
   const [showNewPtSlot, setShowNewPtSlot] = useState(false)
   const [newPtSlot,     setNewPtSlot]     = useState({ date_time:'', duration_minutes:60, trainer:'Mohammed', notes:'' })
-  // Admin: direct lid boeken
-  const [directBook, setDirectBook]  = useState(null)  // {slot}
-  const [members,    setMembers]      = useState([])
-  const [selMember,  setSelMember]    = useState('')
-  // VT weekgebruik (leden)
+
+  // Admin: Class creation form
+  const [showNewClass, setShowNewClass] = useState(false)
+  const [newClass,     setNewClass]     = useState({
+    name:'', instructor:'Mohammed', category:'kickboksen-recreanten',
+    date_time:'', duration_minutes:60, max_capacity:18, location:'Zaal A',
+    repeat_type:'none', repeat_weeks:4,
+  })
+  const [classCreating, setClassCreating] = useState(false)
+
+  // Admin: class bookings in popup
+  const [classBookings,  setClassBookings]  = useState([])
+  const [loadingCB,      setLoadingCB]      = useState(false)
+
+  // Admin: direct VT booking
+  const [directBook, setDirectBook] = useState(null)
+  const [members,    setMembers]    = useState([])
+  const [selMember,  setSelMember]  = useState('')
+
+  // Member: VT usage
   const [vtWeekUsage, setVtWeekUsage] = useState(0)
   const [vtWeekLimit, setVtWeekLimit] = useState(3)
 
@@ -106,10 +137,8 @@ export default function AgendaPage() {
   }
 
   useEffect(reload, [from, to])
-
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = HOUR_PX * 7 }, [])
 
-  // Load members for direct booking
   useEffect(() => {
     if (isAdmin) {
       api.get('/admin/members').then(r => setMembers(r.data.members || [])).catch(() => {})
@@ -117,19 +146,19 @@ export default function AgendaPage() {
   }, [isAdmin])
 
   // Touch swipe
-  const handleTouchStart = (e) => { touchStart.current = e.touches[0].clientX }
-  const handleTouchEnd   = (e) => {
+  const handleTouchStart = e => { touchStart.current = e.touches[0].clientX }
+  const handleTouchEnd   = e => {
     if (touchStart.current == null) return
     const dx = e.changedTouches[0].clientX - touchStart.current
     if (Math.abs(dx) > 60) setMonday(m => addDays(m, dx < 0 ? 7 : -7))
     touchStart.current = null
   }
 
-  // ── Events per dag ──────────────────────────────────────────────────────────
+  // ── Events per dag ────────────────────────────────────────────────────────
   function eventsForDay(dateStr) {
     const events = []
 
-    // Groepslessen
+    // Groepslessen — GOLD
     agenda.classes
       .filter(c => dtToDate(c.date_time) === dateStr)
       .forEach(c => events.push({
@@ -138,10 +167,10 @@ export default function AgendaPage() {
         height: Math.max(durationPx(c.duration_minutes || 60), 28),
         label: c.name,
         sub: c.instructor,
-        bg: 'rgba(59,130,246,0.85)', border: '#3b82f6',
+        ...COLORS.class,
       }))
 
-    // PT boekingen (bevestigd/pending)
+    // PT boekingen — BLUE
     agenda.pt_bookings
       .filter(b => dtToDate(b.date_time) === dateStr)
       .forEach(b => {
@@ -152,12 +181,11 @@ export default function AgendaPage() {
           height: Math.max(durationPx(b.duration_minutes || 60), 28),
           label: isAdmin ? `PT — ${b.first_name} ${b.last_name}` : 'Personal Training',
           sub: b.trainer,
-          bg: isPending ? 'rgba(245,158,11,0.85)' : 'rgba(239,68,68,0.85)',
-          border: isPending ? '#f59e0b' : '#ef4444',
+          ...(isPending ? COLORS.pt_pending : COLORS.pt_confirmed),
         })
       })
 
-    // PT beschikbare slots (admin view only)
+    // PT beschikbare slots (admin only) — light BLUE
     if (isAdmin) {
       ;(agenda.pt_available || [])
         .filter(s => dtToDate(s.date_time) === dateStr)
@@ -165,13 +193,13 @@ export default function AgendaPage() {
           type: 'pt_available', id: `pta-${s.id}`, raw: s,
           top: dtToPx(s.date_time),
           height: Math.max(durationPx(s.duration_minutes || 60), 28),
-          label: `PT — beschikbaar`,
+          label: `PT — vrij (${s.trainer})`,
           sub: s.trainer,
-          bg: 'rgba(239,68,68,0.25)', border: '#ef4444',
+          ...COLORS.pt_available,
         }))
     }
 
-    // VT slots
+    // VT slots — GREEN
     ;(agenda.vt_slots || [])
       .filter(s => s.date === dateStr)
       .forEach(s => {
@@ -180,22 +208,24 @@ export default function AgendaPage() {
               const { label, color } = vtAdminLabel(s)
               const pending = Number(s.pending_count || 0)
               return {
-                bg: pending > 0 ? 'rgba(245,158,11,0.75)' : 'rgba(34,197,94,0.55)',
-                border: pending > 0 ? '#f59e0b' : '#22c55e',
+                bg: pending > 0 ? COLORS.vt_requested.bg : COLORS.vt_avail.bg,
+                border: pending > 0 ? COLORS.vt_requested.border : COLORS.vt_avail.border,
                 statusLabel: label,
               }
             })()
           : (() => {
               const c = vtSlotColor(s)
-              return { bg: c.bg, border: c.border, statusLabel: c.label }
+              return { bg: c.bg, border: c.border, statusLabel: '' }
             })()
 
         events.push({
           type: 'vt_slot', id: `vt-${s.id}`, raw: s,
           top: timeToPx(s.start_time),
           height: Math.max(timeToPx(s.end_time) - timeToPx(s.start_time), 36),
-          label: isAdmin ? `VT — ${col.statusLabel}` : `Vrij Trainen — ${col.statusLabel}`,
-          sub: `${s.start_time}–${s.end_time}`,
+          label: isAdmin
+            ? `VT ${s.start_time}–${s.end_time}`
+            : `VT ${s.start_time}`,
+          sub: isAdmin ? col.statusLabel : `${s.booking_count}/${s.max_bookings} plekken`,
           bg: col.bg, border: col.border,
         })
       })
@@ -203,7 +233,7 @@ export default function AgendaPage() {
     return events
   }
 
-  // ── VT slot aanvragen (lid) ──────────────────────────────────────────────────
+  // ── VT aanvragen (lid) ──────────────────────────────────────────────────
   const requestVt = async () => {
     if (!vtReqSlot) return
     setVtSaving(true); setVtError('')
@@ -223,20 +253,22 @@ export default function AgendaPage() {
     } catch (e) { alert(e.response?.data?.error || 'Fout bij annuleren.') }
   }
 
-  // ── Admin: VT slot aanmaken ──────────────────────────────────────────────────
-  const createSlot = async () => {
+  // ── Admin: VT slot aanmaken ───────────────────────────────────────────────
+  const createVtSlot = async () => {
     if (!newSlot.date || !newSlot.start_time || !newSlot.end_time) {
       return alert('Vul alle velden in.')
     }
     try {
-      await api.post('/vt/admin/slots', newSlot)
+      const r = await api.post('/vt/admin/slots', newSlot)
+      const count = r.data.count || 1
       setShowNewSlot(false)
-      setNewSlot({ date:'', start_time:'08:00', end_time:'10:00', max_bookings:10, notes:'' })
+      setNewSlot({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'' })
       reload()
+      if (count > 1) alert(`${count} VT slots van 1 uur aangemaakt!`)
     } catch (e) { alert(e.response?.data?.error || 'Fout') }
   }
 
-  // ── Admin: PT slot aanmaken ──────────────────────────────────────────────────
+  // ── Admin: PT slot aanmaken ───────────────────────────────────────────────
   const createPtSlot = async () => {
     if (!newPtSlot.date_time) return alert('Vul datum en tijd in.')
     try {
@@ -247,7 +279,36 @@ export default function AgendaPage() {
     } catch (e) { alert(e.response?.data?.error || 'Fout') }
   }
 
-  // ── Admin: bevestig/weiger booking ──────────────────────────────────────────
+  // ── Admin: les aanmaken ───────────────────────────────────────────────────
+  const createClass = async () => {
+    if (!newClass.name || !newClass.date_time) return alert('Vul naam en datum in.')
+    setClassCreating(true)
+    try {
+      const r = await api.post('/admin/classes', newClass)
+      const count = r.data.count || 1
+      setShowNewClass(false)
+      setNewClass({
+        name:'', instructor:'Mohammed', category:'kickboksen-recreanten',
+        date_time:'', duration_minutes:60, max_capacity:18, location:'Zaal A',
+        repeat_type:'none', repeat_weeks:4,
+      })
+      reload()
+      if (count > 1) alert(`${count} lessen aangemaakt!`)
+    } catch (e) { alert(e.response?.data?.error || 'Fout bij aanmaken.') }
+    setClassCreating(false)
+  }
+
+  // ── Admin: fetch class bookings ───────────────────────────────────────────
+  const fetchClassBookings = async (classId) => {
+    setLoadingCB(true)
+    try {
+      const r = await api.get(`/admin/classes/${classId}/bookings`)
+      setClassBookings(r.data.bookings || [])
+    } catch { setClassBookings([]) }
+    setLoadingCB(false)
+  }
+
+  // ── Admin: VT bevestig/weiger ──────────────────────────────────────────────
   const confirmVtBooking = async (bookingId) => {
     await api.put(`/vt/admin/bookings/${bookingId}/confirm`)
     setDetail(null); reload()
@@ -257,7 +318,7 @@ export default function AgendaPage() {
     setDetail(null); reload()
   }
 
-  // ── Admin: direct lid boeken ─────────────────────────────────────────────────
+  // ── Admin: direct lid boeken VT ───────────────────────────────────────────
   const doDirectBook = async () => {
     if (!selMember) return
     try {
@@ -266,48 +327,103 @@ export default function AgendaPage() {
     } catch (e) { alert(e.response?.data?.error || 'Fout') }
   }
 
-  // ── Slot click handler ────────────────────────────────────────────────────────
+  // ── Admin: class verwijderen ──────────────────────────────────────────────
+  const deleteClass = async (classId) => {
+    if (!confirm('Les annuleren?')) return
+    try {
+      await api.delete(`/admin/classes/${classId}`)
+      setDetail(null); reload()
+    } catch (e) { alert(e.response?.data?.error || 'Fout') }
+  }
+
+  // ── Admin: PT slot verwijderen ────────────────────────────────────────────
+  const deletePtSlot = async (slotId) => {
+    if (!confirm('PT slot verwijderen?')) return
+    try {
+      await api.delete(`/pt/slots/${slotId}`)
+      setDetail(null); reload()
+    } catch (e) { alert(e.response?.data?.error || 'Fout') }
+  }
+
+  // ── Slot click ────────────────────────────────────────────────────────────
   const onSlotClick = (ev) => {
     if (ev.type === 'vt_slot') {
       if (isAdmin) {
         setDetail(ev)
+        setClassBookings([])
       } else {
         const s = ev.raw
         if (s.my_booking_id) {
-          // al geboekt — toon detail met annuleer knop
           setDetail(ev)
         } else {
           const isFull = Number(s.booking_count) >= Number(s.max_bookings)
           if (!isFull) {
-            setVtReqSlot(s)
-            setVtReqNote('')
-            setVtError('')
+            setVtReqSlot(s); setVtReqNote(''); setVtError('')
           }
         }
       }
+    } else if (ev.type === 'class') {
+      setDetail(ev)
+      setClassBookings([])
+      if (isAdmin) fetchClassBookings(ev.raw.id)
     } else {
       setDetail(ev)
+      setClassBookings([])
     }
   }
 
-  const headerDateFmt = (d) => d.toLocaleDateString('nl-NL', { day:'numeric', month:'short' })
+  // ── Upcoming member sessions (this + next week) ────────────────────────────
+  const upcomingSessions = !isAdmin
+    ? [
+        ...(agenda.classes || [])
+          .filter(c => c.i_booked && new Date(c.date_time) > new Date())
+          .map(c => ({ type:'class', label: c.name, sub: c.instructor, dt: new Date(c.date_time), color: '#f5c200' })),
+        ...(agenda.pt_bookings || [])
+          .filter(b => b.status !== 'cancelled' && new Date(b.date_time) > new Date())
+          .map(b => ({ type:'pt', label: 'Personal Training', sub: b.trainer, dt: new Date(b.date_time), color: '#3b82f6' })),
+        ...(agenda.vt_slots || [])
+          .filter(s => s.my_status === 'confirmed' || s.my_status === 'requested')
+          .filter(s => new Date(s.date + 'T' + s.start_time) > new Date())
+          .map(s => ({ type:'vt', label: 'Vrij Trainen', sub: `${s.start_time}–${s.end_time}`, dt: new Date(s.date + 'T' + s.start_time), color: '#22c55e', statusColor: s.my_status === 'requested' ? '#f59e0b' : '#22c55e' })),
+      ].sort((a,b) => a.dt - b.dt).slice(0,5)
+    : []
+
+  const headerDateFmt = d => d.toLocaleDateString('nl-NL', { day:'numeric', month:'short' })
+  const fmtDT = iso => new Date(iso).toLocaleString('nl-NL', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
+
+  // Active form (only 1 open at a time)
+  const closeAllForms = () => { setShowNewSlot(false); setShowNewPtSlot(false); setShowNewClass(false) }
+
+  // Computed VT slot count for admin form
+  const vtSlotPreview = vtSlotCount(newSlot.start_time, newSlot.end_time)
 
   return (
     <div className="agenda-page">
-      {/* ── Header ── */}
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="agenda-header">
         <div className="agenda-header-top">
           <h1 className="agenda-title">Agenda</h1>
-          <div style={{ display:'flex', gap:'0.5rem', alignItems:'center' }}>
+          <div style={{ display:'flex', gap:'0.4rem', alignItems:'center', flexWrap:'wrap' }}>
             {isAdmin && (
               <>
-                <button className="btn btn-primary btn-sm"
-                  onClick={() => { setShowNewPtSlot(s => !s); setShowNewSlot(false) }}>
-                  <Plus size={13}/> PT slot
+                <button
+                  className={`btn btn-sm${showNewClass ? ' btn-outline' : ' btn-primary'}`}
+                  style={{ borderColor:'#f5c200', color: showNewClass ? '#f5c200' : '#000', background: showNewClass ? 'transparent' : '#f5c200' }}
+                  onClick={() => { closeAllForms(); setShowNewClass(s => !s) }}>
+                  <Plus size={13}/> Les
                 </button>
-                <button className="btn btn-primary btn-sm"
-                  onClick={() => { setShowNewSlot(s => !s); setShowNewPtSlot(false) }}>
-                  <Plus size={13}/> VT slot
+                <button
+                  className={`btn btn-sm${showNewPtSlot ? ' btn-outline' : ''}`}
+                  style={{ borderColor:'#3b82f6', color: showNewPtSlot ? '#3b82f6' : '#fff', background: showNewPtSlot ? 'transparent' : '#3b82f6' }}
+                  onClick={() => { closeAllForms(); setShowNewPtSlot(s => !s) }}>
+                  <Plus size={13}/> PT
+                </button>
+                <button
+                  className={`btn btn-sm${showNewSlot ? ' btn-outline' : ''}`}
+                  style={{ borderColor:'#22c55e', color: showNewSlot ? '#22c55e' : '#fff', background: showNewSlot ? 'transparent' : '#22c55e' }}
+                  onClick={() => { closeAllForms(); setShowNewSlot(s => !s) }}>
+                  <Plus size={13}/> VT
                 </button>
               </>
             )}
@@ -331,9 +447,9 @@ export default function AgendaPage() {
         {/* Legenda */}
         <div className="agenda-legend">
           {[
-            ['#3b82f6','Groepslessen'],
-            ['#ef4444','Personal Training'],
-            ['#f59e0b','Aangevraagd'],
+            ['#f5c200','Groepslessen'],
+            ['#3b82f6','Personal Training'],
+            ['#f59e0b','VT aangevraagd'],
             ['#22c55e','Vrij Trainen'],
           ].map(([color, label]) => (
             <span key={label} className="legend-item">
@@ -342,44 +458,119 @@ export default function AgendaPage() {
           ))}
         </div>
 
-        {/* Admin: nieuw PT slot form */}
+        {/* ── Admin: Nieuwe les form ──────────────────────────────────── */}
+        {isAdmin && showNewClass && (
+          <div className="card" style={{ marginTop:'1rem', padding:'1rem', borderColor:'rgba(245,194,0,0.5)' }}>
+            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem', color:'#f5c200', display:'flex', alignItems:'center', gap:6 }}>
+              <Plus size={15}/> Nieuwe les plannen
+            </h3>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))', gap:'0.6rem' }}>
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Naam</label>
+                <input className="input" placeholder="Kickboksen" value={newClass.name} onChange={e => setNewClass({...newClass,name:e.target.value})}/>
+              </div>
+              <div>
+                <label className="input-label">Categorie</label>
+                <select className="input" value={newClass.category} onChange={e => setNewClass({...newClass,category:e.target.value})}>
+                  {CLASS_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Trainer</label>
+                <select className="input" value={newClass.instructor} onChange={e => setNewClass({...newClass,instructor:e.target.value})}>
+                  {TRAINERS.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Datum & tijd</label>
+                <input className="input" type="datetime-local" value={newClass.date_time} onChange={e => setNewClass({...newClass,date_time:e.target.value})}/>
+              </div>
+              <div>
+                <label className="input-label">Max deelnemers</label>
+                <input className="input" type="number" min="1" max="100" value={newClass.max_capacity} onChange={e => setNewClass({...newClass,max_capacity:parseInt(e.target.value)})}/>
+              </div>
+              <div>
+                <label className="input-label">Locatie</label>
+                <input className="input" value={newClass.location} onChange={e => setNewClass({...newClass,location:e.target.value})}/>
+              </div>
+              {/* Recurring */}
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Herhalen</label>
+                <div style={{ display:'flex', gap:'0.4rem', flexWrap:'wrap' }}>
+                  {[['none','Eenmalig'],['weekly','Wekelijks'],['biweekly','2-wekelijks']].map(([k,l]) => (
+                    <button
+                      key={k}
+                      className={`btn btn-sm${newClass.repeat_type===k ? ' btn-primary' : ' btn-ghost'}`}
+                      style={{ fontSize:'0.8rem' }}
+                      onClick={() => setNewClass({...newClass, repeat_type:k})}
+                    >
+                      {k !== 'none' && <Repeat size={12} style={{ marginRight:3 }}/>}{l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {newClass.repeat_type !== 'none' && (
+                <div>
+                  <label className="input-label">Aantal weken</label>
+                  <input className="input" type="number" min="2" max="26" value={newClass.repeat_weeks}
+                    onChange={e => setNewClass({...newClass,repeat_weeks:parseInt(e.target.value)})}/>
+                  <p style={{ fontSize:'0.75rem', color:'var(--text-muted)', marginTop:3 }}>
+                    Maakt {newClass.repeat_weeks} les{Number(newClass.repeat_weeks)>1?'sen':''} aan
+                  </p>
+                </div>
+              )}
+            </div>
+            <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
+              <button className="btn btn-primary btn-sm" onClick={createClass} disabled={classCreating}>
+                {classCreating ? <span className="spinner spinner-sm"/> : <><Check size={13}/> Aanmaken</>}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowNewClass(false)}><X size={13}/> Annuleren</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Admin: PT slot form ─────────────────────────────────────── */}
         {isAdmin && showNewPtSlot && (
-          <div className="card" style={{ marginTop:'1rem', padding:'1rem', borderColor:'rgba(239,68,68,0.4)' }}>
-            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem', color:'var(--error)' }}>PT slot aanmaken</h3>
+          <div className="card" style={{ marginTop:'1rem', padding:'1rem', borderColor:'rgba(59,130,246,0.4)' }}>
+            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem', color:'#3b82f6', display:'flex', alignItems:'center', gap:6 }}>
+              <Plus size={15}/> PT slot aanmaken
+            </h3>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:'0.6rem' }}>
               <div style={{ gridColumn:'span 2' }}>
                 <label className="input-label">Datum & tijd</label>
-                <input className="input" type="datetime-local"
-                  value={newPtSlot.date_time} onChange={e => setNewPtSlot({...newPtSlot,date_time:e.target.value})}/>
+                <input className="input" type="datetime-local" value={newPtSlot.date_time}
+                  onChange={e => setNewPtSlot({...newPtSlot,date_time:e.target.value})}/>
               </div>
               <div>
                 <label className="input-label">Trainer</label>
                 <select className="input" value={newPtSlot.trainer} onChange={e => setNewPtSlot({...newPtSlot,trainer:e.target.value})}>
-                  {['Mohammed','Ecrin','Joep'].map(t => <option key={t}>{t}</option>)}
+                  {TRAINERS.map(t => <option key={t}>{t}</option>)}
                 </select>
               </div>
               <div>
                 <label className="input-label">Duur (min)</label>
-                <input className="input" type="number" min="15" max="120" step="15"
+                <input className="input" type="number" min="30" max="120" step="15"
                   value={newPtSlot.duration_minutes} onChange={e => setNewPtSlot({...newPtSlot,duration_minutes:parseInt(e.target.value)})}/>
               </div>
               <div style={{ gridColumn:'span 2' }}>
                 <label className="input-label">Notities</label>
-                <input className="input" placeholder="Optioneel..."
-                  value={newPtSlot.notes} onChange={e => setNewPtSlot({...newPtSlot,notes:e.target.value})}/>
+                <input className="input" placeholder="Optioneel…" value={newPtSlot.notes}
+                  onChange={e => setNewPtSlot({...newPtSlot,notes:e.target.value})}/>
               </div>
             </div>
             <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
-              <button className="btn btn-primary btn-sm" onClick={createPtSlot}><Check size={13}/> Aanmaken</button>
+              <button className="btn btn-sm" style={{ background:'#3b82f6',color:'#fff' }} onClick={createPtSlot}><Check size={13}/> Aanmaken</button>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowNewPtSlot(false)}><X size={13}/> Annuleren</button>
             </div>
           </div>
         )}
 
-        {/* Admin: nieuw VT slot form */}
+        {/* ── Admin: VT slot form ─────────────────────────────────────── */}
         {isAdmin && showNewSlot && (
           <div className="card" style={{ marginTop:'1rem', padding:'1rem', borderColor:'rgba(34,197,94,0.4)' }}>
-            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem', color:'var(--success)' }}>VT slot aanmaken</h3>
+            <h3 style={{ marginBottom:'0.75rem', fontSize:'0.95rem', color:'#22c55e', display:'flex', alignItems:'center', gap:6 }}>
+              <Plus size={15}/> Vrij Trainen tijdblok
+            </h3>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))', gap:'0.6rem' }}>
               <div>
                 <label className="input-label">Datum</label>
@@ -399,25 +590,56 @@ export default function AgendaPage() {
                 </select>
               </div>
               <div>
-                <label className="input-label">Max pers.</label>
+                <label className="input-label">Max/slot</label>
                 <input className="input" type="number" min="1" max="50"
                   value={newSlot.max_bookings} onChange={e => setNewSlot({...newSlot,max_bookings:parseInt(e.target.value)})}/>
               </div>
               <div style={{ gridColumn:'span 2' }}>
                 <label className="input-label">Notities</label>
-                <input className="input" placeholder="Optioneel..."
+                <input className="input" placeholder="Optioneel…"
                   value={newSlot.notes} onChange={e => setNewSlot({...newSlot,notes:e.target.value})}/>
               </div>
             </div>
+            {vtSlotPreview > 0 && (
+              <div style={{
+                marginTop:'0.6rem', padding:'0.5rem 0.75rem',
+                background:'rgba(34,197,94,0.1)', borderRadius:'var(--r)',
+                fontSize:'0.82rem', color:'#22c55e', fontWeight:600,
+              }}>
+                {vtSlotPreview === 1
+                  ? '✓ 1 slot van 1 uur wordt aangemaakt'
+                  : `✓ ${vtSlotPreview} slots van 1 uur worden aangemaakt (${newSlot.start_time}–${newSlot.end_time})`
+                }
+              </div>
+            )}
             <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
-              <button className="btn btn-primary btn-sm" onClick={createSlot}><Check size={13}/> Aanmaken</button>
+              <button className="btn btn-sm" style={{ background:'#22c55e',color:'#000' }} onClick={createVtSlot}><Check size={13}/> Aanmaken</button>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowNewSlot(false)}><X size={13}/> Annuleren</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* ── Kalender ── */}
+      {/* ── Member: upcoming sessions ──────────────────────────────────── */}
+      {!isAdmin && upcomingSessions.length > 0 && (
+        <div style={{ padding:'0 1rem 0.5rem', display:'flex', gap:'0.5rem', overflowX:'auto', paddingBottom:'0.75rem' }}>
+          {upcomingSessions.map((s, i) => (
+            <div key={i} style={{
+              flexShrink:0, background:'var(--surface-2)', borderRadius:'var(--r)',
+              padding:'0.6rem 0.9rem', borderLeft:`3px solid ${s.statusColor || s.color}`,
+              minWidth:140,
+            }}>
+              <div style={{ fontWeight:700, fontSize:'0.8rem', color: s.color }}>{s.label}</div>
+              <div style={{ fontSize:'0.75rem', color:'var(--text-muted)', marginTop:2 }}>{s.sub}</div>
+              <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginTop:2 }}>
+                {s.dt.toLocaleDateString('nl-NL',{weekday:'short',day:'numeric',month:'short'})} {s.dt.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Kalender ──────────────────────────────────────────────────── */}
       <div className="agenda-wrap" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {/* Dag headers */}
         <div className="agenda-day-headers">
@@ -456,7 +678,7 @@ export default function AgendaPage() {
                   {Array.from({ length: 24 }, (_,h) => (
                     <div key={h} className="hour-line" style={{ top: h*HOUR_PX }}/>
                   ))}
-                  <div className="gym-open-zone" style={{ top:8*HOUR_PX, height:14*HOUR_PX }}/>
+                  <div className="gym-open-zone" style={{ top:7*HOUR_PX, height:15*HOUR_PX }}/>
                   {evts.map(ev => (
                     <div
                       key={ev.id}
@@ -464,8 +686,8 @@ export default function AgendaPage() {
                       style={{ top:ev.top, height:ev.height, background:ev.bg, borderLeft:`3px solid ${ev.border}` }}
                       onClick={e => { e.stopPropagation(); onSlotClick(ev) }}
                     >
-                      <span className="cal-event-label">{ev.label}</span>
-                      {ev.height > 36 && <span className="cal-event-sub">{ev.sub}</span>}
+                      <span className="cal-event-label" style={{ color: ev.border === '#f5c200' ? '#000' : 'inherit' }}>{ev.label}</span>
+                      {ev.height > 36 && <span className="cal-event-sub" style={{ color: ev.border === '#f5c200' ? 'rgba(0,0,0,0.7)' : 'inherit' }}>{ev.sub}</span>}
                     </div>
                   ))}
                 </div>
@@ -475,66 +697,119 @@ export default function AgendaPage() {
         </div>
       </div>
 
-      {/* ── Event detail popup ── */}
+      {/* ── Event detail popup ──────────────────────────────────────────── */}
       {detail && (
         <div className="modal-overlay" onClick={() => setDetail(null)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()} style={{ maxWidth:400 }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()} style={{ maxWidth:420 }}>
             <div className="modal-header">
-              <h3>{detail.label}</h3>
+              <h3 style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{
+                  display:'inline-block', width:10, height:10, borderRadius:'50%',
+                  background: detail.type==='class' ? '#f5c200'
+                    : (detail.type.startsWith('pt') ? '#3b82f6' : '#22c55e'),
+                }}/>
+                {detail.label}
+              </h3>
               <button className="btn-icon" onClick={() => setDetail(null)}><X size={18}/></button>
             </div>
             <div style={{ padding:'1rem', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
 
+              {/* ── Class detail ── */}
               {detail.type === 'class' && (
                 <>
                   <p><Clock size={14} style={{ display:'inline', marginRight:6 }}/>
                     {new Date(detail.raw.date_time).toLocaleString('nl-NL',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}
                   </p>
                   <p><User size={14} style={{ display:'inline', marginRight:6 }}/>{detail.raw.instructor}</p>
-                  <p><Users size={14} style={{ display:'inline', marginRight:6 }}/>{detail.raw.confirmed_bookings}/{detail.raw.max_capacity} deelnemers</p>
+                  <p><Users size={14} style={{ display:'inline', marginRight:6 }}/>
+                    {detail.raw.confirmed_bookings}/{detail.raw.max_capacity} deelnemers
+                    {detail.raw.i_booked ? <span style={{ color:'var(--success)', marginLeft:8, fontWeight:600 }}>✓ Jij bent geboekt</span> : null}
+                  </p>
                   <p style={{ color:'var(--text-muted)', fontSize:'0.85rem' }}>{detail.raw.location}</p>
+                  {detail.raw.repeat_type && detail.raw.repeat_type !== 'none' && (
+                    <p style={{ fontSize:'0.8rem', color:'var(--text-muted)' }}>
+                      <Repeat size={12} style={{ display:'inline', marginRight:4 }}/>{detail.raw.repeat_type === 'weekly' ? 'Wekelijks herhalend' : '2-wekelijks herhalend'}
+                    </p>
+                  )}
+
+                  {/* Admin: bookings list */}
+                  {isAdmin && (
+                    <div>
+                      <p style={{ fontWeight:600, fontSize:'0.85rem', marginBottom:'0.4rem', display:'flex', alignItems:'center', gap:6 }}>
+                        Ingeschreven leden
+                        {loadingCB && <RefreshCw size={12} style={{ animation:'spin 1s linear infinite' }}/>}
+                      </p>
+                      {!loadingCB && classBookings.length === 0 && (
+                        <p style={{ color:'var(--text-muted)', fontSize:'0.83rem' }}>Nog niemand ingeschreven.</p>
+                      )}
+                      <div style={{ maxHeight:160, overflowY:'auto', display:'flex', flexDirection:'column', gap:3 }}>
+                        {classBookings.map(b => (
+                          <div key={b.id} style={{ display:'flex', justifyContent:'space-between', padding:'0.35rem 0.6rem', background:'var(--surface-2)', borderRadius:6, fontSize:'0.83rem' }}>
+                            <span style={{ fontWeight:600 }}>{b.first_name} {b.last_name}</span>
+                            <span style={{ color:'var(--text-muted)' }}>{b.email}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button className="btn btn-danger btn-sm" style={{ marginTop:'0.75rem' }} onClick={() => deleteClass(detail.raw.id)}>
+                        <Trash2 size={13}/> Les annuleren
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
 
+              {/* ── PT detail ── */}
               {(detail.type === 'pt_confirmed' || detail.type === 'pt_pending' || detail.type === 'pt_available') && (
                 <>
                   <p><Clock size={14} style={{ display:'inline', marginRight:6 }}/>
                     {new Date(detail.raw.date_time).toLocaleString('nl-NL',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}
                   </p>
                   <p><User size={14} style={{ display:'inline', marginRight:6 }}/>{detail.raw.trainer}</p>
-                  {isAdmin && detail.raw.first_name && <p>Lid: {detail.raw.first_name} {detail.raw.last_name}</p>}
+                  <p>{detail.raw.duration_minutes || 60} minuten</p>
+                  {isAdmin && detail.raw.first_name && (
+                    <p style={{ color:'var(--success)' }}>
+                      <Users size={14} style={{ display:'inline', marginRight:6 }}/>{detail.raw.first_name} {detail.raw.last_name}
+                    </p>
+                  )}
                   {detail.type !== 'pt_available' && (
                     <p style={{ color: detail.type==='pt_pending'?'var(--warning)':'var(--success)', fontWeight:600 }}>
                       {detail.type==='pt_pending' ? '⏳ Wacht op bevestiging' : '✓ Bevestigd'}
                     </p>
                   )}
-                  {detail.type === 'pt_available' && <p style={{ color:'var(--text-muted)' }}>Nog beschikbaar</p>}
+                  {detail.type === 'pt_available' && <p style={{ color:'var(--text-muted)', fontSize:'0.85rem' }}>Vrij slot — nog niet geboekt</p>}
+                  {isAdmin && (
+                    <button className="btn btn-danger btn-sm" onClick={() => deletePtSlot(detail.raw.id)}>
+                      <Trash2 size={13}/> Slot verwijderen
+                    </button>
+                  )}
                 </>
               )}
 
+              {/* ── VT slot detail ── */}
               {detail.type === 'vt_slot' && (() => {
                 const s = detail.raw
                 return (
                   <>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                       <div>
-                        <p style={{ fontWeight:600 }}>{s.date}</p>
+                        <p style={{ fontWeight:700 }}>{s.date}</p>
                         <p style={{ color:'var(--text-muted)' }}>{s.start_time} – {s.end_time}</p>
                       </div>
-                      <div style={{ textAlign:'right', fontSize:'0.85rem', color:'var(--text-muted)' }}>
-                        {s.booking_count}/{s.max_bookings} pers.
+                      <div style={{ textAlign:'right', fontSize:'0.85rem' }}>
+                        <span style={{ fontWeight:700 }}>{s.booking_count}</span>
+                        <span style={{ color:'var(--text-muted)' }}>/{s.max_bookings} plekken</span>
                       </div>
                     </div>
                     {s.notes && <p style={{ color:'var(--text-muted)', fontSize:'0.85rem' }}>{s.notes}</p>}
 
-                    {/* Admin view: boekingen + acties */}
+                    {/* Admin view */}
                     {isAdmin && (
                       <>
                         {(s.bookings || []).length > 0 && (
                           <div>
-                            <p style={{ fontWeight:600, fontSize:'0.85rem', marginBottom:'0.5rem' }}>Boekingen:</p>
+                            <p style={{ fontWeight:600, fontSize:'0.85rem', marginBottom:'0.4rem' }}>Boekingen:</p>
                             {s.bookings.map(b => (
-                              <div key={b.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.4rem 0.6rem', background:'var(--surface-2)', borderRadius:6, marginBottom:4 }}>
+                              <div key={b.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.4rem 0.6rem', background:'var(--surface-2)', borderRadius:6, marginBottom:3 }}>
                                 <div style={{ fontSize:'0.85rem' }}>
                                   <span style={{ fontWeight:600 }}>{b.first_name} {b.last_name}</span>
                                   <span style={{ marginLeft:8, color:b.status==='confirmed'?'var(--success)':'var(--warning)', fontSize:'0.78rem' }}>
@@ -562,7 +837,6 @@ export default function AgendaPage() {
                           </div>
                         )}
 
-                        {/* Direct lid boeken */}
                         {Number(s.booking_count) < Number(s.max_bookings) && (
                           directBook?.id === s.id ? (
                             <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
@@ -590,17 +864,27 @@ export default function AgendaPage() {
                           await api.delete(`/vt/admin/slots/${s.id}`)
                           setDetail(null); reload()
                         }}>
-                          Slot verwijderen
+                          <Trash2 size={13}/> Slot verwijderen
                         </button>
                       </>
                     )}
 
                     {/* Lid view */}
                     {!isAdmin && s.my_booking_id && (
-                      <button className="btn btn-danger" style={{ width:'100%' }}
-                        onClick={() => cancelVt(s.my_booking_id)}>
-                        {s.my_status === 'requested' ? 'Aanvraag intrekken' : 'Annuleren'}
-                      </button>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                        <div style={{
+                          padding:'0.5rem 0.75rem', borderRadius:8,
+                          background: s.my_status==='confirmed' ? 'rgba(34,197,94,0.1)' : 'rgba(245,158,11,0.1)',
+                          color: s.my_status==='confirmed' ? 'var(--success)' : 'var(--warning)',
+                          fontSize:'0.85rem', fontWeight:600,
+                        }}>
+                          {s.my_status==='confirmed' ? '✓ Bevestigd' : '⏳ Wacht op bevestiging'}
+                        </div>
+                        <button className="btn btn-danger" style={{ width:'100%' }}
+                          onClick={() => cancelVt(s.my_booking_id)}>
+                          {s.my_status === 'requested' ? 'Aanvraag intrekken' : 'Annuleren'}
+                        </button>
+                      </div>
                     )}
                   </>
                 )
@@ -611,24 +895,23 @@ export default function AgendaPage() {
         </div>
       )}
 
-      {/* ── VT aanvraag modal (lid) ── */}
+      {/* ── VT aanvraag modal (lid) ─────────────────────────────────────── */}
       {vtReqSlot && (
         <div className="modal-overlay" onClick={() => setVtReqSlot(null)}>
           <div className="modal-box" onClick={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()} style={{ maxWidth:380 }}>
             <div className="modal-header">
-              <h3>Vrij Trainen aanvragen</h3>
+              <h3>🏋️ Vrij Trainen aanvragen</h3>
               <button className="btn-icon" onClick={() => setVtReqSlot(null)}><X size={18}/></button>
             </div>
             <div style={{ padding:'1rem', display:'flex', flexDirection:'column', gap:'0.75rem' }}>
-              <div style={{ padding:'0.75rem', background:'var(--surface-2)', borderRadius:8 }}>
-                <p style={{ fontWeight:700 }}>{vtReqSlot.date}</p>
-                <p style={{ color:'var(--text-muted)' }}>{vtReqSlot.start_time} – {vtReqSlot.end_time}</p>
+              <div style={{ padding:'0.75rem', background:'var(--surface-2)', borderRadius:8, borderLeft:'3px solid #22c55e' }}>
+                <p style={{ fontWeight:700, color:'#22c55e' }}>{vtReqSlot.date}</p>
+                <p style={{ color:'var(--text-2)', fontSize:'1rem', fontWeight:600 }}>{vtReqSlot.start_time} – {vtReqSlot.end_time}</p>
                 <p style={{ fontSize:'0.82rem', color:'var(--text-muted)', marginTop:4 }}>
                   {vtReqSlot.booking_count}/{vtReqSlot.max_bookings} plekken bezet
                 </p>
               </div>
 
-              {/* Weekgebruik badge */}
               <div style={{
                 display:'flex', alignItems:'center', justifyContent:'center',
                 padding:'0.5rem', borderRadius:8,
@@ -652,11 +935,11 @@ export default function AgendaPage() {
                   </div>
                   {vtError && <p style={{ color:'var(--error)', fontSize:'0.85rem' }}>{vtError}</p>}
                   <p style={{ fontSize:'0.82rem', color:'var(--text-muted)' }}>
-                    De admin bevestigt je aanvraag zo snel mogelijk. Je ontvangt een melding.
+                    De admin bevestigt je aanvraag zo snel mogelijk.
                   </p>
                   <button className="btn btn-primary" onClick={requestVt} disabled={vtSaving}
-                    style={{ touchAction: 'manipulation' }}>
-                    {vtSaving ? 'Bezig...' : 'Aanvraag indienen'}
+                    style={{ touchAction:'manipulation' }}>
+                    {vtSaving ? 'Bezig…' : 'Aanvraag indienen'}
                   </button>
                 </>
               )}
@@ -666,7 +949,7 @@ export default function AgendaPage() {
       )}
 
       {loading && (
-        <div style={{ position:'fixed', bottom:'5rem', left:'50%', transform:'translateX(-50%)', background:'var(--surface)', borderRadius:'var(--r)', padding:'0.5rem 1rem', fontSize:'0.85rem', color:'var(--text-muted)' }}>
+        <div style={{ position:'fixed', bottom:'5rem', left:'50%', transform:'translateX(-50%)', background:'var(--surface)', borderRadius:'var(--r)', padding:'0.5rem 1rem', fontSize:'0.85rem', color:'var(--text-muted)', zIndex:100 }}>
           Laden…
         </div>
       )}

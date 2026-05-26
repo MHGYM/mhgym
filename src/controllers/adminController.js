@@ -426,14 +426,70 @@ const adminListClasses = async (req, res) => {
 };
 
 const adminCreateClass = async (req, res) => {
-  const { name, description, instructor, category, date_time, duration_minutes, max_capacity, location } = req.body;
-  if (!name || !instructor || !category || !date_time) return res.status(400).json({ error: 'Naam, instructeur, categorie en datum zijn verplicht.' });
+  const {
+    name, description, instructor, category, date_time, duration_minutes, max_capacity, location,
+    repeat_type = 'none', repeat_weeks = 4,
+  } = req.body;
+  if (!name || !instructor || !category || !date_time) {
+    return res.status(400).json({ error: 'Naam, instructeur, categorie en datum zijn verplicht.' });
+  }
+
+  // Parse date components from local datetime string (format: 2025-06-02T16:00 or 2025-06-02T16:00:00)
+  const [datePart, timePart = '00:00'] = date_time.split('T');
+  const [yr, mo, dy] = datePart.split('-').map(Number);
+  const [hr, mn = 0] = timePart.replace(/:\d\d$/, '').split(':').map(Number);
+
+  const toDateTimeStr = (d) => {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  };
+
+  // Determine occurrences and interval
+  let occurrences  = 1;
+  let intervalDays = 0;
+  if (repeat_type === 'weekly') {
+    occurrences  = Math.min(Math.max(1, parseInt(repeat_weeks) || 4), 26);
+    intervalDays = 7;
+  } else if (repeat_type === 'biweekly') {
+    occurrences  = Math.min(Math.max(1, parseInt(repeat_weeks) || 4), 26);
+    intervalDays = 14;
+  }
+
+  // Unique group id for this repeat batch (to allow bulk-delete later)
+  const repeatGroupId = occurrences > 1 ? `rg-${Date.now()}` : null;
+
+  const created = [];
+  for (let i = 0; i < occurrences; i++) {
+    const d = new Date(yr, mo - 1, dy + i * intervalDays, hr, mn);
+    const dtStr = toDateTimeStr(d);
+    const r = await db.execute({
+      sql: `INSERT INTO classes (name, description, instructor, category, date_time, duration_minutes, max_capacity, location, repeat_type, repeat_group_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [name, description || null, instructor, category, dtStr,
+             duration_minutes || 60, max_capacity || 20, location || 'Zaal A',
+             repeat_type, repeatGroupId],
+    });
+    created.push(Number(r.lastInsertRowid));
+  }
+
+  if (created.length === 1) {
+    const cls = await db.execute({ sql: 'SELECT * FROM classes WHERE id = ?', args: [created[0]] });
+    return res.status(201).json({ class: cls.rows[0], count: 1 });
+  }
+
+  res.status(201).json({ count: created.length, message: `${created.length} lessen aangemaakt (${repeat_type}).`, repeat_group_id: repeatGroupId });
+};
+
+const adminGetClassBookings = async (req, res) => {
   const result = await db.execute({
-    sql: `INSERT INTO classes (name, description, instructor, category, date_time, duration_minutes, max_capacity, location) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [name, description || null, instructor, category, date_time, duration_minutes || 60, max_capacity || 20, location || 'Zaal A'],
+    sql: `SELECT b.id, b.status, b.booked_at, u.first_name, u.last_name, u.email
+          FROM bookings b
+          JOIN users u ON u.id = b.user_id
+          WHERE b.class_id = ? AND b.status = 'confirmed'
+          ORDER BY b.booked_at`,
+    args: [req.params.id],
   });
-  const cls = await db.execute({ sql: 'SELECT * FROM classes WHERE id = ?', args: [result.lastInsertRowid] });
-  res.status(201).json({ class: cls.rows[0] });
+  res.json({ bookings: result.rows });
 };
 
 const adminUpdateClass = async (req, res) => {
@@ -747,7 +803,7 @@ module.exports = {
   MEMBERSHIP_TYPES,
   listMembers, getMember, setMemberRole, updateMemberNotes, pauseMembership,
   assignMembership, markCashPaid, addPtLessons, deleteMember, createMemberWithSepa,
-  adminListClasses, adminCreateClass, adminUpdateClass, adminCancelClass,
+  adminListClasses, adminCreateClass, adminUpdateClass, adminCancelClass, adminGetClassBookings,
   adminListBookings,
   adminListPayments,
   getStats,
