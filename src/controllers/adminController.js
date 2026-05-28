@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 const { sendPush } = require('./ptController');
-const { sendEmail, sendAdminWelcomeEmail } = require('../services/emailService');
+const { sendEmail, sendAdminWelcomeEmail, sendPtConfirmationEmail } = require('../services/emailService');
 
 // ── Lidmaatschapstypes (constanten) ────────────────────────────────────────
 const MEMBERSHIP_TYPES = [
@@ -829,6 +829,30 @@ const adminBookClass = async (req, res) => {
   const dtStr = new Date(cls.date_time).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   sendPush(user_id, `Ingeboekt: ${cls.name}`, `Je bent ingeboekt voor ${cls.name} op ${dtStr}.`).catch(() => {});
 
+  // E-mail sturen
+  const userRes = await db.execute({ sql: 'SELECT email, first_name FROM users WHERE id = ?', args: [user_id] });
+  const usr = userRes.rows[0];
+  if (usr) {
+    const fmtDate = new Date(cls.date_time).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' });
+    const fmtTime = new Date(cls.date_time).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+    sendEmail({
+      to: usr.email,
+      subject: `MHGym — ingeboekt voor ${cls.name}`,
+      html: `<div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">Je bent ingeboekt! 🥊</h2>
+        <p style="color:#ccc">Hoi ${usr.first_name}, je bent door de planner ingeboekt voor een les.</p>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Les</td><td style="color:#fff;font-weight:600;text-align:right">${cls.name}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Datum</td><td style="color:#fff;font-weight:600;text-align:right">${fmtDate}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Tijd</td><td style="color:#F5C200;font-weight:700;text-align:right">${fmtTime}</td></tr>
+          </table>
+        </div>
+        <p style="color:#666;font-size:13px">Tot dan! 💪<br>Vragen? <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a></p>
+      </div>`,
+    }).catch(() => {});
+  }
+
   res.status(201).json({ message: `Lid ingeboekt voor ${cls.name}.` });
 };
 
@@ -862,6 +886,13 @@ const adminBookPt = async (req, res) => {
 
   const dtStr = new Date(slot.date_time).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   sendPush(user_id, 'PT Sessie ingeboekt! 💪', `Je personal training op ${dtStr} is bevestigd.`).catch(() => {});
+
+  // E-mail sturen via bestaande PT bevestigingsmail
+  const userRes2 = await db.execute({ sql: 'SELECT email, first_name FROM users WHERE id = ?', args: [user_id] });
+  const usr2 = userRes2.rows[0];
+  if (usr2) {
+    sendPtConfirmationEmail({ to: usr2.email, firstName: usr2.first_name, dateTime: slot.date_time }).catch(() => {});
+  }
 
   res.status(201).json({ message: 'Lid ingeboekt voor PT sessie.' });
 };

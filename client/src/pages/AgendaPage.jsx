@@ -120,7 +120,7 @@ function AddEventSheet({ date, dateTime, members, onClose, onCreated }) {
 
   const fmtDT = iso => {
     const d = new Date(iso)
-    return d.toLocaleDateString('nl-NL', { weekday:'short', day:'numeric', month:'short' }) +
+    return d.toLocaleDateString('nl-NL', { weekday:'long', day:'numeric', month:'long' }) +
            ' · ' + d.toLocaleTimeString('nl-NL', { hour:'2-digit', minute:'2-digit' })
   }
 
@@ -166,12 +166,13 @@ function AddEventSheet({ date, dateTime, members, onClose, onCreated }) {
 
         {/* Time badge */}
         <div style={{
-          display:'inline-flex', alignItems:'center', gap:6,
-          padding:'0.35rem 0.75rem', borderRadius:20,
-          background:'var(--surface-2)', fontSize:'0.8rem', color:'var(--text-muted)',
+          display:'inline-flex', alignItems:'center', gap:8,
+          padding:'0.5rem 1rem', borderRadius:20,
+          background:'var(--surface-2)', fontSize:'0.92rem', color:'var(--text)',
+          fontWeight: 600,
           marginBottom:'1rem',
         }}>
-          <Clock size={12}/> {fmtDT(dateTime)}
+          <Clock size={14}/> {fmtDT(dateTime)}
         </div>
 
         {/* Step 1 — type cards */}
