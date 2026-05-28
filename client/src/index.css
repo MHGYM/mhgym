@@ -888,6 +888,11 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   height: calc(100vh - 64px);
   overflow: hidden;
 }
+@media (max-width: 768px) {
+  .agenda-page {
+    height: calc(100vh - 64px - 60px);
+  }
+}
 .agenda-header {
   padding: 1rem 1.5rem 0.75rem;
   background: var(--bg);

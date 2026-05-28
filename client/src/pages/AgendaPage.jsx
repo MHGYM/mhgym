@@ -135,7 +135,7 @@ function AddEventSheet({ date, dateTime, members, onClose, onCreated }) {
 
   return (
     <div style={{
-      position:'fixed', inset:0, zIndex:300,
+      position:'fixed', inset:0, zIndex:1100,
       background:'rgba(0,0,0,0.55)',
       display:'flex', flexDirection:'column', justifyContent:'flex-end',
     }} onClick={onClose}>
