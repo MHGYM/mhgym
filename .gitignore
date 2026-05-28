@@ -3,4 +3,11 @@ node_modules/
 *.db
 *.db-journal
 npm-debug.log*
+*.log
 .DS_Store
+test_token.txt
+WhatsApp*
+*.jpg
+*.jpeg
+*.mp4
+*.mov
