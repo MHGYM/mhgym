@@ -1,0 +1,6 @@
+TypeError: Do not know how to serialize a BigInt
+    at JSON.stringify (<anonymous>)
+    at stringify (C:\Projecten\MHGym\node_modules\express\lib\response.js:1034:12)
+    at ServerResponse.json (C:\Projecten\MHGym\node_modules\express\lib\response.js:245:14)
+    at startShopCheckout (C:\Projecten\MHGym\src\controllers\shopController.js:109:7)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

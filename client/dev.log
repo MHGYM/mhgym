@@ -1,0 +1,41 @@
+
+> mhgym-client@1.0.0 dev
+> vite
+
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m475[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m14:43:13[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m14:43:13[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m14:43:19[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m14:43:23[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m14:43:26[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m14:43:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgendaPage.jsx[22m
+[2m14:43:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgendaPage.jsx[22m
+[2m14:43:44[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgendaPage.jsx[22m
+[2m14:43:48[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m14:43:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m14:43:56[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CommunityPage.jsx[22m
+[2m14:44:01[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CommunityPage.jsx[22m
+[2m14:44:10[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CommunityPage.jsx[22m
+[2m14:47:46[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m14:47:49[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m20:28:44[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m20:28:50[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m21:30:15[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/PersonalTrainingPage.jsx[22m
+[2m21:30:24[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CommunityPage.jsx[22m
+[2m21:30:31[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CommunityPage.jsx[22m
+[2m21:30:36[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CommunityPage.jsx[22m
+[2m21:32:05[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AuthPage.jsx[22m
+[2m21:36:39[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m21:36:43[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m21:51:30[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CommunityPage.jsx[22m
+[2m22:13:03[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AdminPage.jsx[22m
+[2m22:13:26[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AdminPage.jsx[22m
+[2m22:13:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AdminPage.jsx[22m
+[2m16:17:14[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AgendaPage.jsx[22m
+[2m16:19:37[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AdminPage.jsx[22m
+[2m16:19:51[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AdminPage.jsx[22m

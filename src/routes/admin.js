@@ -27,7 +27,9 @@ router.delete('/classes/:id',      ctrl.adminCancelClass);
 router.get('/classes/:id/bookings', ctrl.adminGetClassBookings);
 
 // ── Boekingen ─────────────────────────────────────────────────────────────────
-router.get('/bookings', ctrl.adminListBookings);
+router.get('/bookings',        ctrl.adminListBookings);
+router.post('/bookings/class', ctrl.adminBookClass);
+router.post('/bookings/pt',    ctrl.adminBookPt);
 
 // ── Betalingen ─────────────────────────────────────────────────────────────────
 router.get('/payments', ctrl.adminListPayments);

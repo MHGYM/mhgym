@@ -799,6 +799,73 @@ const pauseMembershipFromFailure = async (req, res) => {
   res.json({ message: 'Lidmaatschap gepauzeerd.' });
 };
 
+// ── Admin: lid inboeken in groepsles ───────────────────────────────────────
+
+// ── Admin: lid inboeken in groepsles ───────────────────────────────────────
+
+const adminBookClass = async (req, res) => {
+  const { class_id, user_id } = req.body;
+  if (!class_id || !user_id) return res.status(400).json({ error: 'class_id en user_id zijn verplicht.' });
+
+  const clsRes = await db.execute({
+    sql: `SELECT * FROM classes WHERE id = ? AND status = 'scheduled'`,
+    args: [class_id],
+  });
+  const cls = clsRes.rows[0];
+  if (!cls) return res.status(404).json({ error: 'Les niet gevonden of al geannuleerd.' });
+  if (Number(cls.current_bookings) >= Number(cls.max_capacity)) {
+    return res.status(400).json({ error: 'Les is vol.' });
+  }
+
+  const dup = await db.execute({
+    sql: `SELECT id FROM bookings WHERE user_id = ? AND class_id = ? AND status = 'confirmed'`,
+    args: [user_id, class_id],
+  });
+  if (dup.rows[0]) return res.status(409).json({ error: 'Dit lid is al ingeschreven voor deze les.' });
+
+  await db.execute({ sql: `INSERT INTO bookings (user_id, class_id) VALUES (?, ?)`, args: [user_id, class_id] });
+  await db.execute({ sql: `UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = ?`, args: [class_id] });
+
+  const dtStr = new Date(cls.date_time).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  sendPush(user_id, `Ingeboekt: ${cls.name}`, `Je bent ingeboekt voor ${cls.name} op ${dtStr}.`).catch(() => {});
+
+  res.status(201).json({ message: `Lid ingeboekt voor ${cls.name}.` });
+};
+
+// ── Admin: lid inboeken in PT slot ─────────────────────────────────────────
+
+const adminBookPt = async (req, res) => {
+  const { slot_id, user_id } = req.body;
+  if (!slot_id || !user_id) return res.status(400).json({ error: 'slot_id en user_id zijn verplicht.' });
+
+  const slotRes = await db.execute({
+    sql: `SELECT * FROM pt_slots WHERE id = ? AND status = 'available'`,
+    args: [slot_id],
+  });
+  const slot = slotRes.rows[0];
+  if (!slot) return res.status(404).json({ error: 'PT slot niet gevonden of al geboekt.' });
+
+  const dup = await db.execute({
+    sql: `SELECT id FROM pt_bookings WHERE slot_id = ? AND status NOT IN ('cancelled','declined')`,
+    args: [slot_id],
+  });
+  if (dup.rows[0]) return res.status(409).json({ error: 'Dit slot is al geboekt.' });
+
+  await db.execute({
+    sql: `INSERT INTO pt_bookings (user_id, slot_id, status) VALUES (?, ?, 'confirmed')`,
+    args: [user_id, slot_id],
+  });
+  await db.execute({
+    sql: `UPDATE pt_slots SET status = 'booked', updated_at = datetime('now') WHERE id = ?`,
+    args: [slot_id],
+  });
+
+  const dtStr = new Date(slot.date_time).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  sendPush(user_id, 'PT Sessie ingeboekt! 💪', `Je personal training op ${dtStr} is bevestigd.`).catch(() => {});
+
+  res.status(201).json({ message: 'Lid ingeboekt voor PT sessie.' });
+};
+
 module.exports = {
   MEMBERSHIP_TYPES,
   listMembers, getMember, setMemberRole, updateMemberNotes, pauseMembership,
@@ -809,4 +876,5 @@ module.exports = {
   getStats,
   getPaymentFailures, getPaymentDetail, sendPaymentReminder, sendPayLink,
   markPaymentPaid, pauseMembershipFromFailure, processAutoReminders,
+  adminBookClass, adminBookPt,
 };

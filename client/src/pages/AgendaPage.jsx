@@ -70,6 +70,257 @@ function vtSlotCount(start, end) {
 const VT_HOUR_OPTIONS = []
 for (let h = 6; h <= 23; h++) VT_HOUR_OPTIONS.push(`${String(h).padStart(2,'0')}:00`)
 
+// ── AddEventSheet ────────────────────────────────────────────────────────────
+// Bottom sheet that slides up when admin taps an empty time slot.
+// Step 1: tap type card (Les / PT / VT)  →  Step 2: fill minimal details  →  Opslaan
+function AddEventSheet({ date, dateTime, members, onClose, onCreated }) {
+  const [type,   setType]   = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState('')
+
+  const [cls, setCls] = useState({
+    name: '', category: CLASS_CATS[0], instructor: TRAINERS[0],
+    date_time: dateTime, duration_minutes: 60, max_capacity: 18, location: 'Zaal A',
+  })
+  const [pt, setPt] = useState({
+    date_time: dateTime, duration_minutes: 60, trainer: TRAINERS[0],
+    member_id: '', notes: '',
+  })
+  const [vt, setVt] = useState(() => {
+    const [, time = '09:00'] = dateTime.split('T')
+    const [hh] = time.split(':').map(Number)
+    const startH = String(Math.min(hh, 22)).padStart(2, '0')
+    const endH   = String(Math.min(hh + 1, 23)).padStart(2, '0')
+    return { date, start_time: `${startH}:00`, end_time: `${endH}:00`, max_bookings: 10, notes: '' }
+  })
+
+  const save = async () => {
+    setSaving(true); setError('')
+    try {
+      if (type === 'class') {
+        if (!cls.name) throw new Error('Vul een naam in.')
+        await api.post('/admin/classes', cls)
+      } else if (type === 'pt') {
+        const r = await api.post('/pt/slots', {
+          date_time: pt.date_time, duration_minutes: pt.duration_minutes,
+          trainer: pt.trainer, notes: pt.notes || undefined,
+        })
+        if (pt.member_id && r.data?.slot?.id) {
+          await api.post('/admin/bookings/pt', { slot_id: r.data.slot.id, user_id: parseInt(pt.member_id) }).catch(() => {})
+        }
+      } else if (type === 'vt') {
+        await api.post('/vt/admin/slots', vt)
+      }
+      onCreated()
+    } catch (e) {
+      setError(e.message || e.response?.data?.error || 'Fout bij opslaan.')
+      setSaving(false)
+    }
+  }
+
+  const fmtDT = iso => {
+    const d = new Date(iso)
+    return d.toLocaleDateString('nl-NL', { weekday:'short', day:'numeric', month:'short' }) +
+           ' · ' + d.toLocaleTimeString('nl-NL', { hour:'2-digit', minute:'2-digit' })
+  }
+
+  const TYPE_OPTS = [
+    { key:'class', label:'Groepsles',        icon:'📚', color:'#f5c200', desc:'Kickboksen, boksen, jeugd…' },
+    { key:'pt',    label:'Personal Training', icon:'🥊', color:'#3b82f6', desc:'1-op-1 sessie met lid' },
+    { key:'vt',    label:'Vrij Trainen',      icon:'🏋️', color:'#22c55e', desc:'Open trainingstijd' },
+  ]
+
+  const btnColor = type === 'class' ? '#f5c200' : type === 'pt' ? '#3b82f6' : '#22c55e'
+  const btnText  = type === 'class' ? '#000' : '#fff'
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:300,
+      background:'rgba(0,0,0,0.55)',
+      display:'flex', flexDirection:'column', justifyContent:'flex-end',
+    }} onClick={onClose}>
+      <div style={{
+        background:'var(--surface)',
+        borderRadius:'20px 20px 0 0',
+        padding:'0 1rem env(safe-area-inset-bottom, 1.5rem)',
+        maxHeight:'92vh',
+        overflowY:'auto',
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Handle */}
+        <div style={{ width:40, height:4, background:'var(--border)', borderRadius:2, margin:'0.8rem auto 0.5rem' }}/>
+
+        {/* Header row */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.75rem' }}>
+          <div>
+            {type && (
+              <button style={{ background:'none', border:'none', cursor:'pointer', padding:'4px 0', color:'var(--text-muted)', fontSize:'0.82rem', display:'flex', alignItems:'center', gap:4 }}
+                onClick={() => { setType(null); setError('') }}>
+                <ChevronLeft size={14}/> Terug
+              </button>
+            )}
+            {!type && <span style={{ fontSize:'0.95rem', fontWeight:700 }}>Inplannen</span>}
+          </div>
+          <button className="btn-icon" onClick={onClose}><X size={18}/></button>
+        </div>
+
+        {/* Time badge */}
+        <div style={{
+          display:'inline-flex', alignItems:'center', gap:6,
+          padding:'0.35rem 0.75rem', borderRadius:20,
+          background:'var(--surface-2)', fontSize:'0.8rem', color:'var(--text-muted)',
+          marginBottom:'1rem',
+        }}>
+          <Clock size={12}/> {fmtDT(dateTime)}
+        </div>
+
+        {/* Step 1 — type cards */}
+        {!type && (
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem', paddingBottom:'1.5rem' }}>
+            {TYPE_OPTS.map(opt => (
+              <button key={opt.key} onClick={() => setType(opt.key)} style={{
+                display:'flex', alignItems:'center', gap:16, width:'100%',
+                padding:'1rem 1.1rem', borderRadius:14, cursor:'pointer', textAlign:'left',
+                background:`${opt.color}15`, border:`2px solid ${opt.color}`,
+              }}>
+                <span style={{ fontSize:'2rem', lineHeight:1 }}>{opt.icon}</span>
+                <div>
+                  <div style={{ fontWeight:700, color:opt.color, fontSize:'1rem' }}>{opt.label}</div>
+                  <div style={{ fontSize:'0.78rem', color:'var(--text-muted)', marginTop:2 }}>{opt.desc}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Step 2a — Groepsles */}
+        {type === 'class' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem', paddingBottom:'1.5rem' }}>
+            <div>
+              <label className="input-label">Naam les</label>
+              <input className="input" style={{ fontSize:'1rem' }} placeholder="Kickboksen recreanten"
+                value={cls.name} onChange={e => setCls({...cls, name:e.target.value})} autoFocus/>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem' }}>
+              <div>
+                <label className="input-label">Categorie</label>
+                <select className="input" value={cls.category} onChange={e => setCls({...cls, category:e.target.value})}>
+                  {CLASS_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Trainer</label>
+                <select className="input" value={cls.instructor} onChange={e => setCls({...cls, instructor:e.target.value})}>
+                  {TRAINERS.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Datum & tijd</label>
+                <input className="input" type="datetime-local" value={cls.date_time}
+                  onChange={e => setCls({...cls, date_time:e.target.value})}/>
+              </div>
+              <div>
+                <label className="input-label">Duur (min)</label>
+                <input className="input" type="number" min="30" max="180" step="15"
+                  value={cls.duration_minutes} onChange={e => setCls({...cls, duration_minutes:parseInt(e.target.value)})}/>
+              </div>
+              <div>
+                <label className="input-label">Max deelnemers</label>
+                <input className="input" type="number" min="1" max="100"
+                  value={cls.max_capacity} onChange={e => setCls({...cls, max_capacity:parseInt(e.target.value)})}/>
+              </div>
+              <div>
+                <label className="input-label">Locatie</label>
+                <input className="input" value={cls.location} onChange={e => setCls({...cls, location:e.target.value})}/>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2b — PT */}
+        {type === 'pt' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem', paddingBottom:'1.5rem' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem' }}>
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Datum & tijd</label>
+                <input className="input" type="datetime-local" value={pt.date_time}
+                  onChange={e => setPt({...pt, date_time:e.target.value})}/>
+              </div>
+              <div>
+                <label className="input-label">Trainer</label>
+                <select className="input" value={pt.trainer} onChange={e => setPt({...pt, trainer:e.target.value})}>
+                  {TRAINERS.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Duur (min)</label>
+                <input className="input" type="number" min="30" max="120" step="15"
+                  value={pt.duration_minutes} onChange={e => setPt({...pt, duration_minutes:parseInt(e.target.value)})}/>
+              </div>
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Lid <span style={{fontWeight:400, color:'var(--text-muted)'}}>— direct inboeken (optioneel)</span></label>
+                <select className="input" style={{ fontSize:'0.95rem' }} value={pt.member_id} onChange={e => setPt({...pt, member_id:e.target.value})}>
+                  <option value="">— Vrij slot —</option>
+                  {members.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn:'span 2' }}>
+                <label className="input-label">Notities <span style={{fontWeight:400, color:'var(--text-muted)'}}>(optioneel)</span></label>
+                <input className="input" placeholder="Bijv. conditie, kracht…"
+                  value={pt.notes} onChange={e => setPt({...pt, notes:e.target.value})}/>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2c — VT */}
+        {type === 'vt' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem', paddingBottom:'1.5rem' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.5rem' }}>
+              <div>
+                <label className="input-label">Datum</label>
+                <input className="input" type="date" value={vt.date}
+                  onChange={e => setVt({...vt, date:e.target.value})}/>
+              </div>
+              <div>
+                <label className="input-label">Van</label>
+                <select className="input" value={vt.start_time} onChange={e => setVt({...vt, start_time:e.target.value})}>
+                  {VT_HOUR_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Tot</label>
+                <select className="input" value={vt.end_time} onChange={e => setVt({...vt, end_time:e.target.value})}>
+                  {VT_HOUR_OPTIONS.filter(o => o > vt.start_time).map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="input-label">Max plekken</label>
+                <input className="input" type="number" min="1" max="50"
+                  value={vt.max_bookings} onChange={e => setVt({...vt, max_bookings:parseInt(e.target.value)})}/>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {error && <p style={{ color:'var(--error)', fontSize:'0.85rem', marginBottom:'0.5rem' }}>{error}</p>}
+
+        {type && (
+          <button onClick={save} disabled={saving} style={{
+            width:'100%', padding:'0.9rem', borderRadius:14, border:'none',
+            background: btnColor, color: btnText,
+            fontWeight:800, fontSize:'1rem', cursor: saving ? 'not-allowed' : 'pointer',
+            opacity: saving ? 0.7 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+            marginBottom:'0.5rem',
+          }}>
+            {saving ? 'Bezig…' : <><Check size={16}/> Inplannen</>}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function AgendaPage() {
   const { user } = useAuth()
@@ -109,6 +360,19 @@ export default function AgendaPage() {
   const [directBook, setDirectBook] = useState(null)
   const [members,    setMembers]    = useState([])
   const [selMember,  setSelMember]  = useState('')
+
+  // Admin: quick create (click-on-calendar)
+  const [quickCreate, setQuickCreate] = useState(null) // { date, dateTime }
+
+  // Week / Day view toggle
+  const [viewMode,    setViewMode]    = useState('week') // 'week' | 'day'
+  const [selectedDay, setSelectedDay] = useState(new Date())
+
+  // Admin: inboeken lid in les of PT slot
+  const [bookingTarget,   setBookingTarget]   = useState(null)  // { type:'class'|'pt', id }
+  const [bookingMemberId, setBookingMemberId] = useState('')
+  const [bookingLoading,  setBookingLoading]  = useState(false)
+  const [bookingError,    setBookingError]    = useState('')
 
   // Member: VT usage
   const [vtWeekUsage, setVtWeekUsage] = useState(0)
@@ -153,6 +417,18 @@ export default function AgendaPage() {
     if (Math.abs(dx) > 60) setMonday(m => addDays(m, dx < 0 ? 7 : -7))
     touchStart.current = null
   }
+
+  const handleTouchEndDay = e => {
+    if (touchStart.current == null) return
+    const dx = e.changedTouches[0].clientX - touchStart.current
+    if (Math.abs(dx) > 50) setSelectedDay(d => addDays(d, dx < 0 ? 1 : -1))
+    touchStart.current = null
+  }
+
+  // When selectedDay changes in day view, make sure monday tracks the right week
+  useEffect(() => {
+    if (viewMode === 'day') setMonday(getMonday(selectedDay))
+  }, [selectedDay, viewMode])
 
   // ── Events per dag ────────────────────────────────────────────────────────
   function eventsForDay(dateStr) {
@@ -327,6 +603,23 @@ export default function AgendaPage() {
     } catch (e) { alert(e.response?.data?.error || 'Fout') }
   }
 
+  // ── Admin: lid inboeken in les of PT slot ────────────────────────────────
+  const doAdminBook = async () => {
+    if (!bookingMemberId || !bookingTarget) return
+    setBookingLoading(true); setBookingError('')
+    try {
+      if (bookingTarget.type === 'class') {
+        await api.post('/admin/bookings/class', { class_id: bookingTarget.id, user_id: parseInt(bookingMemberId) })
+      } else {
+        await api.post('/admin/bookings/pt', { slot_id: bookingTarget.id, user_id: parseInt(bookingMemberId) })
+      }
+      setBookingTarget(null); setBookingMemberId(''); setDetail(null); reload()
+    } catch (e) {
+      setBookingError(e.response?.data?.error || 'Fout bij inboeken.')
+    }
+    setBookingLoading(false)
+  }
+
   // ── Admin: class verwijderen ──────────────────────────────────────────────
   const deleteClass = async (classId) => {
     if (!confirm('Les annuleren?')) return
@@ -397,6 +690,21 @@ export default function AgendaPage() {
   // Computed VT slot count for admin form
   const vtSlotPreview = vtSlotCount(newSlot.start_time, newSlot.end_time)
 
+  // Admin: click on empty calendar cell → open quick-create modal
+  const handleColClick = (e, dStr) => {
+    if (!isAdmin) return
+    // Ignore if a form panel is open (avoid accidental triggers)
+    if (showNewClass || showNewPtSlot || showNewSlot) return
+    const rect      = e.currentTarget.getBoundingClientRect()
+    const relY      = Math.max(0, e.clientY - rect.top)
+    const totalMins = Math.round((relY / HOUR_PX) * 60 / 15) * 15
+    const h  = Math.min(Math.max(Math.floor(totalMins / 60), 0), 23)
+    const m  = totalMins % 60
+    const hh = String(h).padStart(2, '0')
+    const mm = String(m).padStart(2, '0')
+    setQuickCreate({ date: dStr, dateTime: `${dStr}T${hh}:${mm}` })
+  }
+
   return (
     <div className="agenda-page">
 
@@ -437,9 +745,35 @@ export default function AgendaPage() {
                 {vtWeekUsage}/{vtWeekLimit} VT deze week
               </span>
             )}
-            <button className="btn btn-ghost btn-sm" onClick={() => setMonday(getMonday(new Date()))}>Vandaag</button>
-            <button className="btn-icon" onClick={() => setMonday(m => addDays(m,-7))}><ChevronLeft size={18}/></button>
-            <button className="btn-icon" onClick={() => setMonday(m => addDays(m, 7))}><ChevronRight size={18}/></button>
+            {/* Week / Dag toggle */}
+            <div style={{ display:'flex', gap:2, background:'var(--surface-2)', borderRadius:8, padding:2 }}>
+              <button
+                onClick={() => setViewMode('week')}
+                style={{
+                  padding:'4px 12px', borderRadius:6, border:'none', cursor:'pointer', fontSize:'0.8rem', fontWeight:600,
+                  background: viewMode === 'week' ? 'var(--accent)' : 'transparent',
+                  color: viewMode === 'week' ? '#000' : 'var(--text-muted)',
+                }}>Week</button>
+              <button
+                onClick={() => { setViewMode('day'); setSelectedDay(new Date()) }}
+                style={{
+                  padding:'4px 12px', borderRadius:6, border:'none', cursor:'pointer', fontSize:'0.8rem', fontWeight:600,
+                  background: viewMode === 'day' ? 'var(--accent)' : 'transparent',
+                  color: viewMode === 'day' ? '#000' : 'var(--text-muted)',
+                }}>Dag</button>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => {
+              if (viewMode === 'day') setSelectedDay(new Date())
+              else setMonday(getMonday(new Date()))
+            }}>Vandaag</button>
+            <button className="btn-icon" onClick={() => {
+              if (viewMode === 'day') setSelectedDay(d => addDays(d, -1))
+              else setMonday(m => addDays(m, -7))
+            }}><ChevronLeft size={18}/></button>
+            <button className="btn-icon" onClick={() => {
+              if (viewMode === 'day') setSelectedDay(d => addDays(d, 1))
+              else setMonday(m => addDays(m, 7))
+            }}><ChevronRight size={18}/></button>
           </div>
         </div>
         <p className="agenda-week-label">{headerDateFmt(monday)} – {headerDateFmt(sunday)}</p>
@@ -639,7 +973,58 @@ export default function AgendaPage() {
         </div>
       )}
 
-      {/* ── Kalender ──────────────────────────────────────────────────── */}
+      {/* ── Dagweergave ───────────────────────────────────────────────── */}
+      {viewMode === 'day' && (
+        <div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 1rem 0.25rem' }}>
+            <button className="btn-icon" style={{ width:36, height:36 }} onClick={() => setSelectedDay(d => addDays(d, -1))}><ChevronLeft size={20}/></button>
+            <div style={{ textAlign:'center' }}>
+              <div style={{ fontWeight:700, fontSize:'1.05rem', textTransform:'capitalize' }}>
+                {selectedDay.toLocaleDateString('nl-NL', { weekday:'long', day:'numeric', month:'long' })}
+              </div>
+              {toDateStr(selectedDay) === today && (
+                <div style={{ fontSize:'0.72rem', color:'var(--accent, #f5c200)', fontWeight:700, marginTop:1 }}>Vandaag</div>
+              )}
+            </div>
+            <button className="btn-icon" style={{ width:36, height:36 }} onClick={() => setSelectedDay(d => addDays(d, 1))}><ChevronRight size={20}/></button>
+          </div>
+          <div className="agenda-wrap" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEndDay}>
+            <div className="agenda-scroll" ref={scrollRef}>
+              <div style={{ display:'flex', height: TOTAL_PX, position:'relative' }}>
+                <div className="time-gutter">
+                  {Array.from({ length: 24 }, (_,h) => (
+                    <div key={h} className="time-label" style={{ top: h*HOUR_PX }}>{String(h).padStart(2,'0')}:00</div>
+                  ))}
+                </div>
+                <div
+                  className={`day-col${toDateStr(selectedDay)===today?' today-col':''}`}
+                  style={{ flex:1, cursor: isAdmin ? 'cell' : 'default', minWidth:0 }}
+                  onClick={e => { if(isAdmin) handleColClick(e, toDateStr(selectedDay)) }}
+                >
+                  {Array.from({ length: 24 }, (_,h) => (
+                    <div key={h} className="hour-line" style={{ top: h*HOUR_PX }}/>
+                  ))}
+                  <div className="gym-open-zone" style={{ top:7*HOUR_PX, height:15*HOUR_PX }}/>
+                  {eventsForDay(toDateStr(selectedDay)).map(ev => (
+                    <div
+                      key={ev.id}
+                      className="cal-event"
+                      style={{ top:ev.top, height:ev.height, background:ev.bg, borderLeft:`3px solid ${ev.border}`, right:2 }}
+                      onClick={e => { e.stopPropagation(); onSlotClick(ev) }}
+                    >
+                      <span className="cal-event-label" style={{ color: ev.border==='#f5c200'?'#000':'inherit', fontSize:'0.88rem' }}>{ev.label}</span>
+                      {ev.height > 40 && <span className="cal-event-sub" style={{ color: ev.border==='#f5c200'?'rgba(0,0,0,0.65)':'inherit' }}>{ev.sub}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Weekweergave ──────────────────────────────────────────────── */}
+      {viewMode === 'week' && (
       <div className="agenda-wrap" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
         {/* Dag headers */}
         <div className="agenda-day-headers">
@@ -674,7 +1059,12 @@ export default function AgendaPage() {
               const dStr = toDateStr(d)
               const evts = eventsForDay(dStr)
               return (
-                <div key={i} className={`day-col${dStr===today?' today-col':''}`}>
+                <div
+                  key={i}
+                  className={`day-col${dStr===today?' today-col':''}`}
+                  onClick={e => handleColClick(e, dStr)}
+                  style={isAdmin ? { cursor:'cell' } : {}}
+                >
                   {Array.from({ length: 24 }, (_,h) => (
                     <div key={h} className="hour-line" style={{ top: h*HOUR_PX }}/>
                   ))}
@@ -696,6 +1086,7 @@ export default function AgendaPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Event detail popup ──────────────────────────────────────────── */}
       {detail && (
@@ -725,7 +1116,6 @@ export default function AgendaPage() {
                     {detail.raw.confirmed_bookings}/{detail.raw.max_capacity} deelnemers
                     {detail.raw.i_booked ? <span style={{ color:'var(--success)', marginLeft:8, fontWeight:600 }}>✓ Jij bent geboekt</span> : null}
                   </p>
-                  <p style={{ color:'var(--text-muted)', fontSize:'0.85rem' }}>{detail.raw.location}</p>
                   {detail.raw.repeat_type && detail.raw.repeat_type !== 'none' && (
                     <p style={{ fontSize:'0.8rem', color:'var(--text-muted)' }}>
                       <Repeat size={12} style={{ display:'inline', marginRight:4 }}/>{detail.raw.repeat_type === 'weekly' ? 'Wekelijks herhalend' : '2-wekelijks herhalend'}
@@ -734,15 +1124,15 @@ export default function AgendaPage() {
 
                   {/* Admin: bookings list */}
                   {isAdmin && (
-                    <div>
-                      <p style={{ fontWeight:600, fontSize:'0.85rem', marginBottom:'0.4rem', display:'flex', alignItems:'center', gap:6 }}>
+                    <div style={{ display:'flex', flexDirection:'column', gap:'0.6rem' }}>
+                      <p style={{ fontWeight:600, fontSize:'0.85rem', marginBottom:0, display:'flex', alignItems:'center', gap:6 }}>
                         Ingeschreven leden
                         {loadingCB && <RefreshCw size={12} style={{ animation:'spin 1s linear infinite' }}/>}
                       </p>
                       {!loadingCB && classBookings.length === 0 && (
                         <p style={{ color:'var(--text-muted)', fontSize:'0.83rem' }}>Nog niemand ingeschreven.</p>
                       )}
-                      <div style={{ maxHeight:160, overflowY:'auto', display:'flex', flexDirection:'column', gap:3 }}>
+                      <div style={{ maxHeight:140, overflowY:'auto', display:'flex', flexDirection:'column', gap:3 }}>
                         {classBookings.map(b => (
                           <div key={b.id} style={{ display:'flex', justifyContent:'space-between', padding:'0.35rem 0.6rem', background:'var(--surface-2)', borderRadius:6, fontSize:'0.83rem' }}>
                             <span style={{ fontWeight:600 }}>{b.first_name} {b.last_name}</span>
@@ -750,7 +1140,33 @@ export default function AgendaPage() {
                           </div>
                         ))}
                       </div>
-                      <button className="btn btn-danger btn-sm" style={{ marginTop:'0.75rem' }} onClick={() => deleteClass(detail.raw.id)}>
+
+                      {/* Lid inboeken */}
+                      {bookingTarget?.id === detail.raw.id && bookingTarget?.type === 'class' ? (
+                        <div style={{ display:'flex', flexDirection:'column', gap:'0.45rem', padding:'0.6rem', background:'var(--surface-2)', borderRadius:8 }}>
+                          <label className="input-label">Kies lid om in te boeken</label>
+                          <select className="input" value={bookingMemberId} onChange={e => { setBookingMemberId(e.target.value); setBookingError('') }}>
+                            <option value="">— Selecteer lid —</option>
+                            {members
+                              .filter(m => !classBookings.some(b => b.email === m.email))
+                              .map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+                          </select>
+                          {bookingError && <p style={{ color:'var(--error)', fontSize:'0.8rem', margin:0 }}>{bookingError}</p>}
+                          <div style={{ display:'flex', gap:'0.4rem' }}>
+                            <button className="btn btn-primary btn-sm" onClick={doAdminBook} disabled={!bookingMemberId || bookingLoading}>
+                              {bookingLoading ? 'Bezig…' : <><Check size={12}/> Inboeken</>}
+                            </button>
+                            <button className="btn btn-ghost btn-sm" onClick={() => { setBookingTarget(null); setBookingMemberId(''); setBookingError('') }}><X size={12}/></button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button className="btn btn-outline btn-sm" style={{ borderColor:'#f5c200', color:'#f5c200' }}
+                          onClick={() => { setBookingTarget({ type:'class', id: detail.raw.id }); setBookingMemberId(''); setBookingError('') }}>
+                          <Plus size={13}/> Lid inboeken
+                        </button>
+                      )}
+
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteClass(detail.raw.id)}>
                         <Trash2 size={13}/> Les annuleren
                       </button>
                     </div>
@@ -776,11 +1192,39 @@ export default function AgendaPage() {
                       {detail.type==='pt_pending' ? '⏳ Wacht op bevestiging' : '✓ Bevestigd'}
                     </p>
                   )}
-                  {detail.type === 'pt_available' && <p style={{ color:'var(--text-muted)', fontSize:'0.85rem' }}>Vrij slot — nog niet geboekt</p>}
+                  {detail.type === 'pt_available' && (
+                    <p style={{ color:'var(--text-muted)', fontSize:'0.85rem' }}>Vrij slot — nog niet geboekt</p>
+                  )}
                   {isAdmin && (
-                    <button className="btn btn-danger btn-sm" onClick={() => deletePtSlot(detail.raw.id)}>
-                      <Trash2 size={13}/> Slot verwijderen
-                    </button>
+                    <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                      {/* Lid inboeken (alleen voor vrije slots) */}
+                      {detail.type === 'pt_available' && (
+                        bookingTarget?.id === detail.raw.id && bookingTarget?.type === 'pt' ? (
+                          <div style={{ display:'flex', flexDirection:'column', gap:'0.45rem', padding:'0.6rem', background:'var(--surface-2)', borderRadius:8 }}>
+                            <label className="input-label">Kies lid om in te boeken</label>
+                            <select className="input" value={bookingMemberId} onChange={e => { setBookingMemberId(e.target.value); setBookingError('') }}>
+                              <option value="">— Selecteer lid —</option>
+                              {members.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+                            </select>
+                            {bookingError && <p style={{ color:'var(--error)', fontSize:'0.8rem', margin:0 }}>{bookingError}</p>}
+                            <div style={{ display:'flex', gap:'0.4rem' }}>
+                              <button className="btn btn-sm" style={{ background:'#3b82f6', color:'#fff' }} onClick={doAdminBook} disabled={!bookingMemberId || bookingLoading}>
+                                {bookingLoading ? 'Bezig…' : <><Check size={12}/> Inboeken</>}
+                              </button>
+                              <button className="btn btn-ghost btn-sm" onClick={() => { setBookingTarget(null); setBookingMemberId(''); setBookingError('') }}><X size={12}/></button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button className="btn btn-outline btn-sm" style={{ borderColor:'#3b82f6', color:'#3b82f6' }}
+                            onClick={() => { setBookingTarget({ type:'pt', id: detail.raw.id }); setBookingMemberId(''); setBookingError('') }}>
+                            <Plus size={13}/> Lid inboeken
+                          </button>
+                        )
+                      )}
+                      <button className="btn btn-danger btn-sm" onClick={() => deletePtSlot(detail.raw.id)}>
+                        <Trash2 size={13}/> Slot verwijderen
+                      </button>
+                    </div>
                   )}
                 </>
               )}
@@ -946,6 +1390,17 @@ export default function AgendaPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Afspraak toevoegen (bottom sheet) ── */}
+      {quickCreate && (
+        <AddEventSheet
+          date={quickCreate.date}
+          dateTime={quickCreate.dateTime}
+          members={members}
+          onClose={() => setQuickCreate(null)}
+          onCreated={() => { setQuickCreate(null); reload() }}
+        />
       )}
 
       {loading && (
