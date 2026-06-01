@@ -8,6 +8,7 @@ router.use(authenticate, requireAdmin);
 router.get('/payments',                      ctrl.getCashPayments);
 router.post('/payments',                     ctrl.logCashPayment);
 router.put('/memberships/:id/quarterly-paid', ctrl.markQuarterlyPaid);
+router.post('/members/payment',              ctrl.registerCashPayment);
 router.get('/members',                       ctrl.getCashMembers);
 
 // ── Fonds ────────────────────────────────────────────────────────────────────

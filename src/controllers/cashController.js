@@ -73,10 +73,11 @@ const markQuarterlyPaid = async (req, res) => {
   const paidDate   = payment_date || new Date().toISOString().split('T')[0];
   const paidAmount = Number(amount || mem.quarterly_amount || 0);
 
-  // Bereken volgende kwartaalvervaldatum
-  const nextDue = new Date(paidDate);
-  nextDue.setMonth(nextDue.getMonth() + 3);
-  const nextDueStr = nextDue.toISOString().split('T')[0];
+  // Gebruik expliciete next_quarter_due of bereken +3 maanden
+  const nextDueStr = req.body.next_quarter_due || (() => {
+    const d = new Date(paidDate); d.setMonth(d.getMonth() + 3);
+    return d.toISOString().split('T')[0];
+  })();
 
   await db.execute({
     sql: `UPDATE user_memberships
@@ -92,6 +93,46 @@ const markQuarterlyPaid = async (req, res) => {
   });
 
   res.json({ message: 'Kwartaalbetaling geregistreerd.', next_due: nextDueStr });
+};
+
+/** Registreer een cash kwartaalbetaling voor een lid (ook als ze nog geen cash membership hebben) */
+const registerCashPayment = async (req, res) => {
+  const { user_id, amount, payment_date, next_quarter_due, note } = req.body;
+  if (!user_id || !amount || !payment_date || !next_quarter_due) {
+    return res.status(400).json({ error: 'user_id, amount, payment_date en next_quarter_due zijn verplicht.' });
+  }
+  const paidAmount = Number(amount);
+
+  // Zoek/update actief lidmaatschap → zet als cash kwartaalbetaler
+  const memRes = await db.execute({
+    sql: `SELECT id FROM user_memberships WHERE user_id = ? AND status IN ('active','cancelling') ORDER BY created_at DESC LIMIT 1`,
+    args: [user_id],
+  });
+  if (memRes.rows[0]) {
+    await db.execute({
+      sql: `UPDATE user_memberships SET
+              payment_type = 'cash', quarterly_amount = ?,
+              last_quarter_paid = ?, next_quarter_due = ?,
+              quarter_reminder_sent = 0, updated_at = datetime('now')
+            WHERE id = ?`,
+      args: [paidAmount, payment_date, next_quarter_due, memRes.rows[0].id],
+    });
+  }
+
+  // Markeer gebruiker als cash betaler
+  await db.execute({
+    sql: `UPDATE users SET is_cash_payer = 1, updated_at = datetime('now') WHERE id = ?`,
+    args: [user_id],
+  });
+
+  // Log de betaling
+  await db.execute({
+    sql: `INSERT INTO cash_payments (user_id, amount, payment_date, payment_type, note, created_by)
+          VALUES (?, ?, ?, 'quarter', ?, ?)`,
+    args: [user_id, paidAmount, payment_date, note || `Kwartaalbetaling ${payment_date}`, req.user.id],
+  });
+
+  res.status(201).json({ message: 'Cash betaling geregistreerd.', next_due: next_quarter_due });
 };
 
 /** Alle cash-betalende leden met kwartaalinfo */
@@ -553,7 +594,7 @@ const getIncomeBreakdown = async (req, res) => {
 };
 
 module.exports = {
-  logCashPayment, getCashPayments, markQuarterlyPaid, getCashMembers,
+  logCashPayment, getCashPayments, markQuarterlyPaid, registerCashPayment, getCashMembers,
   createFondsMembership, listFondsMembers, updateFondsMembership,
   processFondsReminders, processQuarterlyReminders, processCashOverdueReminders,
   runFondsReminders, runQuarterlyReminders,

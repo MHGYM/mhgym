@@ -246,7 +246,7 @@ function LedenSection() {
   const [assignNotes,   setAssignNotes]   = useState('')
   const [assignPayment, setAssignPayment] = useState('mollie')    // 'mollie'|'cash'|'fonds'
   const [assignQuarter, setAssignQuarter] = useState('')          // kwartaalbedrag
-  const [fondsType,     setFondsType]     = useState('jeugdfonds')
+  const [fondsType,     setFondsType]     = useState('jeugdsportfonds')
   const [fondsName,     setFondsName]     = useState('')
   const [fondsEnd,      setFondsEnd]      = useState('')
   const [fondsBedrag,   setFondsBedrag]   = useState('')
@@ -514,7 +514,7 @@ function LedenSection() {
                           <div>
                             <label className="input-label">Fonds type</label>
                             <select className="input" value={fondsType} onChange={e => setFondsType(e.target.value)}>
-                              <option value="jeugdfonds">Jeugdfonds</option>
+                              <option value="jeugdsportfonds">Jeugdsportfonds</option>
                               <option value="volwassenenfonds">Volwassenenfonds</option>
                               <option value="overig">Overig</option>
                             </select>
@@ -1490,7 +1490,11 @@ function KwartaalTab() {
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
-  const [addForm, setAddForm] = useState({ user_id:'', amount:'', payment_date: new Date().toISOString().split('T')[0], note:'' })
+  const [addForm, setAddForm] = useState({
+    user_id: '', amount: '', note: '',
+    payment_date:    new Date().toISOString().split('T')[0],
+    next_quarter_due: (() => { const d = new Date(); d.setMonth(d.getMonth()+3); return d.toISOString().split('T')[0] })(),
+  })
   const [allMembers, setAllMembers] = useState([])
 
   const load = () => {
@@ -1509,6 +1513,27 @@ function KwartaalTab() {
     } catch(e) { alert(e.response?.data?.error||'Fout') }
   }
 
+  const submitAdd = async () => {
+    if (!addForm.user_id || !addForm.amount || !addForm.payment_date || !addForm.next_quarter_due)
+      return alert('Vul alle verplichte velden in (*)')
+    try {
+      await api.post('/cash/members/payment', {
+        user_id: addForm.user_id,
+        amount: parseFloat(addForm.amount),
+        payment_date: addForm.payment_date,
+        next_quarter_due: addForm.next_quarter_due,
+        note: addForm.note || undefined,
+      })
+      setShowAdd(false)
+      setAddForm({
+        user_id: '', amount: '', note: '',
+        payment_date: new Date().toISOString().split('T')[0],
+        next_quarter_due: (() => { const d = new Date(); d.setMonth(d.getMonth()+3); return d.toISOString().split('T')[0] })(),
+      })
+      load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
   const processReminders = async () => {
     const r = await api.post('/cash/quarterly/process-reminders')
     alert(`Kwartaalherinneringen: ${r.data.results.admin_14d} admin, ${r.data.results.member_7d} leden`)
@@ -1520,35 +1545,73 @@ function KwartaalTab() {
     alert(n > 0 ? `⚠️ ${n} lid${n !== 1 ? 'en' : ''} met achterstand gemeld (push + e-mail verstuurd).` : '✅ Geen nieuwe achterstanden gevonden.')
   }
 
-  if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
-
   const overdueCount = members.filter(m => Number(m.days_until_due||0) < 0).length
 
   return (
     <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem',flexWrap:'wrap',gap:'0.5rem'}}>
         <h2 style={{margin:0}}>
           Cash kwartaalbetalers
           {overdueCount > 0 && <span className="badge-error" style={{marginLeft:8,fontSize:'0.72rem'}}>{overdueCount} achterstallig</span>}
         </h2>
-        <div style={{display:'flex',gap:'0.5rem'}}>
+        <div style={{display:'flex',gap:'0.5rem',flexWrap:'wrap'}}>
           {overdueCount > 0 && (
             <button className="btn btn-sm" style={{background:'rgba(239,68,68,0.15)',color:'var(--error)'}} onClick={processOverdue}>
               <AlertTriangle size={13}/> Meld achterstanden
             </button>
           )}
           <button className="btn btn-ghost btn-sm" onClick={processReminders}><RefreshCw size={13}/> Verwerk herinneringen</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(s=>!s)}>
+            {showAdd ? <><X size={13}/> Annuleren</> : <><Plus size={13}/> Betaling toevoegen</>}
+          </button>
         </div>
       </div>
 
-      {members.length === 0 && (
-        <div style={{textAlign:'center',padding:'3rem',color:'var(--text-muted)'}}>
-          <p>Geen cash kwartaalbetalers</p>
-          <p style={{fontSize:'0.8rem'}}>Wijs een lidmaatschap toe via Leden → Betalingsmethode: Cash kwartaal</p>
+      {showAdd && (
+        <div className="card" style={{marginBottom:'1rem'}}>
+          <h3 style={{marginBottom:'0.75rem'}}>Cash betaling registreren</h3>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
+            <div style={{gridColumn:'span 2'}}>
+              <label className="input-label">Lid *</label>
+              <select className="input" value={addForm.user_id} onChange={e => setAddForm({...addForm,user_id:e.target.value})}>
+                <option value="">— Selecteer lid —</option>
+                {allMembers.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name} ({m.email})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="input-label">Bedrag (€) *</label>
+              <input className="input" type="number" min="0" step="0.01" placeholder="150" value={addForm.amount} onChange={e => setAddForm({...addForm,amount:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Betaaldatum *</label>
+              <input className="input" type="date" value={addForm.payment_date} onChange={e => setAddForm({...addForm,payment_date:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Volgende betaaldatum *</label>
+              <input className="input" type="date" value={addForm.next_quarter_due} onChange={e => setAddForm({...addForm,next_quarter_due:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Notitie</label>
+              <input className="input" placeholder="Optioneel" value={addForm.note} onChange={e => setAddForm({...addForm,note:e.target.value})}/>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
+            <button className="btn btn-primary btn-sm" onClick={submitAdd}><Check size={13}/> Opslaan</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowAdd(false)}><X size={13}/> Annuleren</button>
+          </div>
         </div>
       )}
 
-      {members.map(m => {
+      {loading && <p style={{color:'var(--text-muted)',fontSize:'0.875rem'}}>Laden…</p>}
+
+      {!loading && members.length === 0 && (
+        <div style={{textAlign:'center',padding:'3rem',color:'var(--text-muted)'}}>
+          <p>Geen cash kwartaalbetalers</p>
+          <p style={{fontSize:'0.8rem'}}>Klik op "Betaling toevoegen" om een eerste betaling te registreren.</p>
+        </div>
+      )}
+
+      {!loading && members.map(m => {
         const days = Math.round(Number(m.days_until_due)||99)
         const urgent = days <= 7
         const warning = days <= 14
@@ -1593,7 +1656,7 @@ function FondsTab() {
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [filterType, setFilterType] = useState('')
-  const [form,    setForm]    = useState({ user_id:'', fonds_type:'jeugdsportfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', amount_covered:'', notes:'' })
+  const [form,    setForm]    = useState({ user_id:'', fonds_type:'jeugdsportfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', notes:'' })
   const [allMembers, setAllMembers] = useState([])
 
   const load = () => {
@@ -1614,8 +1677,8 @@ function FondsTab() {
   const createFonds = async () => {
     if (!form.user_id || !form.end_date) return alert('Selecteer een lid en einddatum')
     try {
-      await api.post('/cash/fonds', { ...form, amount_covered: parseFloat(form.amount_covered)||null })
-      setShowNew(false); setForm({ user_id:'', fonds_type:'jeugdfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', amount_covered:'', notes:'' }); load()
+      await api.post('/cash/fonds', { ...form })
+      setShowNew(false); setForm({ user_id:'', fonds_type:'jeugdsportfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', notes:'' }); load()
     } catch(e) { alert(e.response?.data?.error||'Fout') }
   }
 
@@ -1629,11 +1692,10 @@ function FondsTab() {
   }
 
   const statusForDays = (days) => {
-    if (days < 0)   return { label: 'VERLOPEN', color: '#6b7280' }
-    if (days <= 7)  return { label: `${Math.round(days)}d ⚠️ URGENT`, color: 'var(--error)' }
-    if (days <= 14) return { label: `${Math.round(days)}d ⚠️`, color: 'var(--warning)' }
-    if (days <= 30) return { label: `${Math.round(days)}d ⚠`, color: '#f59e0b' }
-    return { label: `${Math.round(days)}d`, color: 'var(--success)' }
+    if (days <= 0)  return { label: 'VERLOPEN', color: 'var(--error)' }
+    if (days <= 7)  return { label: `${Math.round(days)}d — URGENT`, color: 'var(--error)' }
+    if (days <= 30) return { label: `${Math.round(days)} dagen`, color: 'var(--warning)' }
+    return { label: `${Math.round(days)} dagen`, color: 'var(--success)' }
   }
 
   if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
@@ -1647,7 +1709,6 @@ function FondsTab() {
             value={filterType} onChange={e => setFilterType(e.target.value)}>
             <option value="">Alle fondsen</option>
             <option value="jeugdsportfonds">Jeugdsportfonds</option>
-            <option value="jeugdfonds">Jeugdfonds</option>
             <option value="volwassenenfonds">Volwassenenfonds</option>
             <option value="overig">Overig</option>
           </select>
@@ -1661,40 +1722,35 @@ function FondsTab() {
           <h3 style={{marginBottom:'0.75rem'}}>Fonds lid toevoegen</h3>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
             <div style={{gridColumn:'span 2'}}>
-              <label className="input-label">Lid</label>
+              <label className="input-label">Lid *</label>
               <select className="input" value={form.user_id} onChange={e => setForm({...form,user_id:e.target.value})}>
                 <option value="">— Selecteer lid —</option>
                 {allMembers.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name} ({m.email})</option>)}
               </select>
             </div>
             <div>
-              <label className="input-label">Fonds type</label>
+              <label className="input-label">Fonds type *</label>
               <select className="input" value={form.fonds_type} onChange={e => setForm({...form,fonds_type:e.target.value})}>
                 <option value="jeugdsportfonds">Jeugdsportfonds</option>
-                <option value="jeugdfonds">Jeugdfonds</option>
                 <option value="volwassenenfonds">Volwassenenfonds</option>
                 <option value="overig">Overig</option>
               </select>
             </div>
             <div>
               <label className="input-label">Fonds naam</label>
-              <input className="input" placeholder="Optioneel" value={form.fonds_name} onChange={e => setForm({...form,fonds_name:e.target.value})}/>
+              <input className="input" placeholder="Optioneel (bijv. Stadjerspas)" value={form.fonds_name} onChange={e => setForm({...form,fonds_name:e.target.value})}/>
             </div>
             <div>
-              <label className="input-label">Startdatum</label>
+              <label className="input-label">Startdatum *</label>
               <input className="input" type="date" value={form.start_date} onChange={e => setForm({...form,start_date:e.target.value})}/>
             </div>
             <div>
-              <label className="input-label">Einddatum</label>
+              <label className="input-label">Verloopdatum *</label>
               <input className="input" type="date" value={form.end_date} onChange={e => setForm({...form,end_date:e.target.value})}/>
             </div>
-            <div>
-              <label className="input-label">Bedrag gedekt (€)</label>
-              <input className="input" type="number" value={form.amount_covered} onChange={e => setForm({...form,amount_covered:e.target.value})}/>
-            </div>
-            <div>
+            <div style={{gridColumn:'span 2'}}>
               <label className="input-label">Notities</label>
-              <input className="input" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}/>
+              <input className="input" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})} placeholder="Optioneel"/>
             </div>
           </div>
           <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
@@ -1714,10 +1770,14 @@ function FondsTab() {
         const days = Number(m.days_remaining || 0)
         const { label, color } = statusForDays(days)
         return (
-          <div key={m.id} className="card" style={{marginBottom:'0.6rem',borderColor:days<7?'var(--error)':days<14?'var(--warning)':'var(--border)'}}>
+          <div key={m.id} className="card" style={{marginBottom:'0.6rem',borderColor:days<=0?'var(--error)':days<=30?'var(--warning)':'var(--border)'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <div>
-                <div style={{fontWeight:700}}>{m.first_name} {m.last_name}</div>
+                <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
+                  {m.first_name} {m.last_name}
+                  {days <= 0 && <span className="badge-error" style={{fontSize:'0.7rem'}}>VERLOPEN</span>}
+                  {days > 0 && days <= 30 && <span className="badge-warning" style={{fontSize:'0.7rem'}}>VERLOOPT BINNENKORT</span>}
+                </div>
                 <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>{m.email}</div>
                 <div style={{fontSize:'0.82rem',marginTop:3}}>
                   🏛️ {m.fonds_name||m.fonds_type}
