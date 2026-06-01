@@ -42,10 +42,13 @@ const listMembers = async (req, res) => {
       m.name AS membership_name, m.category AS membership_category, m.price_monthly,
       (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id AND b.status = 'confirmed') AS total_bookings,
       (SELECT COUNT(*) FROM pt_bookings pb WHERE pb.user_id = u.id AND pb.status IN ('confirmed','completed')) AS total_pt,
-      (SELECT SUM(pp.lessons_remaining) FROM pt_purchases pp WHERE pp.user_id = u.id AND pp.status = 'paid' AND pp.lessons_remaining > 0) AS pt_lessons_remaining
+      (SELECT SUM(pp.lessons_remaining) FROM pt_purchases pp WHERE pp.user_id = u.id AND pp.status = 'paid' AND pp.lessons_remaining > 0) AS pt_lessons_remaining,
+      fm.fonds_type, fm.fonds_name, fm.end_date AS fonds_end_date,
+      ROUND(julianday(fm.end_date) - julianday('now')) AS fonds_days_remaining
     FROM users u
     LEFT JOIN user_memberships um ON um.user_id = u.id AND um.status IN ('active','cancelling')
     LEFT JOIN memberships m ON m.id = um.membership_id
+    LEFT JOIN fonds_members fm ON fm.user_id = u.id AND fm.status = 'active'
   `;
   const args = [];
   if (q) {

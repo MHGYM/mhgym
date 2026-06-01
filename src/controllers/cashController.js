@@ -206,7 +206,8 @@ const updateFondsMembership = async (req, res) => {
 // ── Automatische herinneringen ───────────────────────────────────────────────
 
 /** Verwerk fonds-verloopmeldingen: 30/14/7 dagen voor + auto-pauze op verloopdatum */
-const processFondsReminders = async (req, res) => {
+// Interne logica — kan ook door cron worden aangeroepen
+const runFondsReminders = async () => {
   const results = { month1: 0, weeks2: 0, week1: 0, auto_paused: 0 };
 
   const fondsMembers = await db.execute(`
@@ -290,11 +291,16 @@ const processFondsReminders = async (req, res) => {
     }
   }
 
+  return results;
+};
+
+const processFondsReminders = async (req, res) => {
+  const results = await runFondsReminders();
   res.json({ message: 'Fonds herinneringen verwerkt.', results });
 };
 
 /** Verwerk kwartaal-betalingsherinneringen: 14 dagen → admin, 7 dagen → lid */
-const processQuarterlyReminders = async (req, res) => {
+const runQuarterlyReminders = async () => {
   const results = { admin_14d: 0, member_7d: 0 };
 
   const cashMembers = await db.execute(`
@@ -335,6 +341,11 @@ const processQuarterlyReminders = async (req, res) => {
     }
   }
 
+  return results;
+};
+
+const processQuarterlyReminders = async (req, res) => {
+  const results = await runQuarterlyReminders();
   res.json({ message: 'Kwartaalherinneringen verwerkt.', results });
 };
 
@@ -545,5 +556,6 @@ module.exports = {
   logCashPayment, getCashPayments, markQuarterlyPaid, getCashMembers,
   createFondsMembership, listFondsMembers, updateFondsMembership,
   processFondsReminders, processQuarterlyReminders, processCashOverdueReminders,
+  runFondsReminders, runQuarterlyReminders,
   getIncomeBreakdown, getCashPtOverview,
 };

@@ -360,6 +360,11 @@ function LedenSection() {
                   {m.first_name} {m.last_name}
                   {m.is_cash_payer ? <span className="badge-warning">Cash</span> : null}
                   {m.membership_paused ? <span className="badge-error">Gepauzeerd</span> : null}
+                  {m.fonds_days_remaining != null && m.fonds_days_remaining <= 30 && (
+                    m.fonds_days_remaining <= 0
+                      ? <span className="badge-error">Fonds verlopen</span>
+                      : <span className="badge-warning">Fonds: {Math.round(m.fonds_days_remaining)}d</span>
+                  )}
                 </div>
                 <div style={{fontSize:'0.75rem',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.email}</div>
                 {m.membership_name && (
