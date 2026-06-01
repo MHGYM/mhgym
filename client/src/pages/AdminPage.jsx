@@ -1509,13 +1509,31 @@ function KwartaalTab() {
     alert(`Kwartaalherinneringen: ${r.data.results.admin_14d} admin, ${r.data.results.member_7d} leden`)
   }
 
+  const processOverdue = async () => {
+    const r = await api.post('/cash/quarterly/process-overdue')
+    const n = r.data.results.newly_overdue
+    alert(n > 0 ? `⚠️ ${n} lid${n !== 1 ? 'en' : ''} met achterstand gemeld (push + e-mail verstuurd).` : '✅ Geen nieuwe achterstanden gevonden.')
+  }
+
   if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
+
+  const overdueCount = members.filter(m => Number(m.days_until_due||0) < 0).length
 
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
-        <h2 style={{margin:0}}>Cash kwartaalbetalers</h2>
-        <button className="btn btn-ghost btn-sm" onClick={processReminders}><RefreshCw size={13}/> Verwerk herinneringen</button>
+        <h2 style={{margin:0}}>
+          Cash kwartaalbetalers
+          {overdueCount > 0 && <span className="badge-error" style={{marginLeft:8,fontSize:'0.72rem'}}>{overdueCount} achterstallig</span>}
+        </h2>
+        <div style={{display:'flex',gap:'0.5rem'}}>
+          {overdueCount > 0 && (
+            <button className="btn btn-sm" style={{background:'rgba(239,68,68,0.15)',color:'var(--error)'}} onClick={processOverdue}>
+              <AlertTriangle size={13}/> Meld achterstanden
+            </button>
+          )}
+          <button className="btn btn-ghost btn-sm" onClick={processReminders}><RefreshCw size={13}/> Verwerk herinneringen</button>
+        </div>
       </div>
 
       {members.length === 0 && (
@@ -1569,17 +1587,19 @@ function FondsTab() {
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
-  const [form,    setForm]    = useState({ user_id:'', fonds_type:'jeugdfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', amount_covered:'', notes:'' })
+  const [filterType, setFilterType] = useState('')
+  const [form,    setForm]    = useState({ user_id:'', fonds_type:'jeugdsportfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', amount_covered:'', notes:'' })
   const [allMembers, setAllMembers] = useState([])
 
   const load = () => {
     setLoading(true)
-    api.get('/cash/fonds').then(r => { setMembers(r.data.members||[]); setLoading(false) }).catch(() => setLoading(false))
+    const params = filterType ? `?type=${encodeURIComponent(filterType)}` : ''
+    api.get(`/cash/fonds${params}`).then(r => { setMembers(r.data.members||[]); setLoading(false) }).catch(() => setLoading(false))
   }
   useEffect(() => {
     load()
     api.get('/admin/members').then(r => setAllMembers(r.data.members||[])).catch(() => {})
-  }, [])
+  }, [filterType])
 
   const processReminders = async () => {
     const r = await api.post('/cash/fonds/process-reminders')
@@ -1615,9 +1635,17 @@ function FondsTab() {
 
   return (
     <div>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem',flexWrap:'wrap',gap:'0.5rem'}}>
         <h2 style={{margin:0}}>Fonds leden</h2>
-        <div style={{display:'flex',gap:'0.5rem'}}>
+        <div style={{display:'flex',gap:'0.5rem',flexWrap:'wrap'}}>
+          <select className="input" style={{height:32,padding:'0 8px',fontSize:'0.82rem',width:'auto'}}
+            value={filterType} onChange={e => setFilterType(e.target.value)}>
+            <option value="">Alle fondsen</option>
+            <option value="jeugdsportfonds">Jeugdsportfonds</option>
+            <option value="jeugdfonds">Jeugdfonds</option>
+            <option value="volwassenenfonds">Volwassenenfonds</option>
+            <option value="overig">Overig</option>
+          </select>
           <button className="btn btn-ghost btn-sm" onClick={processReminders}><RefreshCw size={13}/> Verwerk herinneringen</button>
           <button className="btn btn-primary btn-sm" onClick={() => setShowNew(s=>!s)}>{showNew?<X size={13}/>:<Plus size={13}/>} Nieuw fonds</button>
         </div>
@@ -1637,6 +1665,7 @@ function FondsTab() {
             <div>
               <label className="input-label">Fonds type</label>
               <select className="input" value={form.fonds_type} onChange={e => setForm({...form,fonds_type:e.target.value})}>
+                <option value="jeugdsportfonds">Jeugdsportfonds</option>
                 <option value="jeugdfonds">Jeugdfonds</option>
                 <option value="volwassenenfonds">Volwassenenfonds</option>
                 <option value="overig">Overig</option>
@@ -1804,14 +1833,16 @@ function CashPtTab() {
 // HOOFD COMPONENT
 // ════════════════════════════════════════════════════════════════════
 const MENU = [
-  { key:'dashboard',  label:'Dashboard',       Icon:LayoutDashboard },
-  { key:'leden',      label:'Leden',            Icon:Users           },
-  { key:'pt',         label:'PT Agenda',         Icon:Zap             },
-  { key:'vt',         label:'Vrij Trainen',      Icon:Calendar        },
-  { key:'betalingen', label:'Betalingsfouten',   Icon:AlertTriangle   },
-  { key:'community',  label:'Community',         Icon:Users2          },
-  { key:'rooster',    label:'Rooster',           Icon:Calendar        },
-  { key:'payments',   label:'Betalingen',        Icon:CreditCard      },
+  { key:'dashboard',  label:'Dashboard',        Icon:LayoutDashboard },
+  { key:'leden',      label:'Leden',             Icon:Users           },
+  { key:'cashfonds',  label:'Cash & Fonds',      Icon:Banknote        },
+  { key:'inkomen',    label:'Inkomen',           Icon:TrendingUp      },
+  { key:'pt',         label:'PT Agenda',          Icon:Zap             },
+  { key:'vt',         label:'Vrij Trainen',       Icon:Calendar        },
+  { key:'betalingen', label:'Betalingsfouten',    Icon:AlertTriangle   },
+  { key:'community',  label:'Community',          Icon:Users2          },
+  { key:'rooster',    label:'Rooster',            Icon:Calendar        },
+  { key:'payments',   label:'Betalingen',         Icon:CreditCard      },
 ]
 
 export default function AdminPage() {

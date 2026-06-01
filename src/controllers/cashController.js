@@ -144,15 +144,21 @@ const createFondsMembership = async (req, res) => {
   res.status(201).json({ id: fondsId, message: 'Fonds lidmaatschap aangemaakt.' });
 };
 
-/** Overzicht van alle actieve fonds leden */
+/** Overzicht van alle actieve fonds leden (optioneel filter: ?type=jeugdsportfonds) */
 const listFondsMembers = async (req, res) => {
-  const result = await db.execute(`
+  const { type, status } = req.query;
+  let sql = `
     SELECT fm.*, u.first_name, u.last_name, u.email, u.phone,
            ROUND(julianday(fm.end_date) - julianday('now')) AS days_remaining
     FROM fonds_members fm
     JOIN users u ON u.id = fm.user_id
-    ORDER BY fm.end_date ASC
-  `);
+    WHERE 1=1
+  `;
+  const args = [];
+  if (type)   { sql += ' AND LOWER(fm.fonds_type) = LOWER(?)'; args.push(type); }
+  if (status) { sql += ' AND fm.status = ?'; args.push(status); }
+  sql += ' ORDER BY fm.end_date ASC';
+  const result = await db.execute({ sql, args });
   res.json({ members: result.rows });
 };
 
@@ -332,6 +338,63 @@ const processQuarterlyReminders = async (req, res) => {
   res.json({ message: 'Kwartaalherinneringen verwerkt.', results });
 };
 
+/** Verwerk achterstand-meldingen voor cash leden: betaling is over datum */
+const processCashOverdueReminders = async (req, res) => {
+  const results = { newly_overdue: 0 };
+
+  const overdueMembers = await db.execute(`
+    SELECT um.*, u.email, u.first_name, u.last_name,
+           ROUND(julianday('now') - julianday(um.next_quarter_due)) AS days_overdue
+    FROM user_memberships um
+    JOIN users u ON u.id = um.user_id
+    WHERE um.payment_type = 'cash'
+      AND um.status IN ('active', 'cancelling')
+      AND um.next_quarter_due IS NOT NULL
+      AND julianday('now') > julianday(um.next_quarter_due)
+      AND um.cash_overdue_reminder_sent = 0
+  `);
+
+  for (const mem of overdueMembers.rows) {
+    const days = Math.round(Number(mem.days_overdue) || 0);
+    const label = `${mem.first_name} ${mem.last_name}`;
+    const amount = mem.quarterly_amount ? `€${mem.quarterly_amount}` : 'onbekend bedrag';
+
+    // Notificeer alle admins
+    const admins = await db.execute({ sql: `SELECT id FROM users WHERE role = 'admin'`, args: [] });
+    for (const admin of admins.rows) {
+      await sendPush(
+        admin.id,
+        `⚠️ Achterstand: ${label}`,
+        `Kwartaalbetaling van ${amount} was verwacht op ${mem.next_quarter_due} (${days} dag${days !== 1 ? 'en' : ''} geleden).`
+      ).catch(() => {});
+    }
+
+    // Notificeer het lid zelf
+    await sendPush(
+      mem.user_id,
+      '⚠️ Betaling achterstallig',
+      `Je kwartaalbetaling van ${amount} was verschuldigd op ${mem.next_quarter_due}. Betaal zo snel mogelijk aan de balie.`
+    ).catch(() => {});
+
+    await sendEmail({
+      to: mem.email,
+      subject: 'Betalingsherinnering — achterstallige betaling — MHGym',
+      html: `<p>Hoi ${mem.first_name},</p>
+             <p>Je kwartaalbetaling van <strong>${amount}</strong> was verschuldigd op <strong>${mem.next_quarter_due}</strong> en is nog niet ontvangen.</p>
+             <p>Betaal dit graag zo snel mogelijk contant aan de balie. Bij vragen: <a href="mailto:info@mhgym.nl">info@mhgym.nl</a></p>`,
+    }).catch(() => {});
+
+    await db.execute({
+      sql: `UPDATE user_memberships SET cash_overdue_reminder_sent = 1, updated_at = datetime('now') WHERE id = ?`,
+      args: [mem.id],
+    });
+
+    results.newly_overdue++;
+  }
+
+  res.json({ message: 'Achterstand-meldingen verwerkt.', results });
+};
+
 // ── Cash PT overzicht ─────────────────────────────────────────────────────────
 
 const getCashPtOverview = async (req, res) => {
@@ -481,6 +544,6 @@ const getIncomeBreakdown = async (req, res) => {
 module.exports = {
   logCashPayment, getCashPayments, markQuarterlyPaid, getCashMembers,
   createFondsMembership, listFondsMembers, updateFondsMembership,
-  processFondsReminders, processQuarterlyReminders,
+  processFondsReminders, processQuarterlyReminders, processCashOverdueReminders,
   getIncomeBreakdown, getCashPtOverview,
 };

@@ -84,7 +84,22 @@
       "Bash(git commit -m 'feat: add /api/setup/force-create-admin — always upserts admin user *)",
       "Bash(dir /s \"C:\\\\Projecten\\\\MHGym\\\\src\" /b)",
       "Bash(findstr /E \"\\\\.js$\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(gh auth *)",
+      "PowerShell(gh auth status)",
+      "PowerShell($cred = Get-StoredCredential -Target \"git:https://github.com\" -ErrorAction SilentlyContinue; if \\($cred\\) { $cred.UserName } else { \"Niet gevonden — probeer Windows Credential Manager\" })",
+      "PowerShell($proc = Get-NetTCPConnection -LocalPort 4000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Select-Object -First 1; if \\($proc\\) { Stop-Process -Id $proc -Force; Write-Output \"Backend gestopt \\($proc\\)\" })",
+      "Bash(ls \"C:\\\\Projecten\\\\fashion web\\\\summerfits\")",
+      "Bash(mv \"C:\\\\Projecten\\\\fashion web\\\\summerfits\\\\summerfits.db\" \"C:\\\\Projecten\\\\fashion web\\\\summerfits\\\\seasonfits.db\" && echo \"OK: hernoemd\" || echo \"Mislukt of al hernoemd\")",
+      "Bash(node src/server.js)",
+      "Bash(echo \"Backend PID: $!\")",
+      "Bash(echo \"Frontend PID: $!\")",
+      "Bash(curl -s http://localhost:4000/api/health)",
+      "Bash(pkill -f \"node src/server.js\")",
+      "Bash(curl -s http://localhost:4000/api/products/homepage-settings)",
+      "Bash(curl -s http://localhost:4000/api/products/categories)",
+      "Bash(git -C \"C:\\\\Projecten\\\\MHGym\" status)",
+      "Bash(git -C \"C:\\\\Projecten\\\\fashion web\\\\summerfits\" status)"
     ]
   }
 }

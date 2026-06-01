@@ -16,6 +16,7 @@ router.post('/fonds',                        ctrl.createFondsMembership);
 router.put('/fonds/:id',                     ctrl.updateFondsMembership);
 router.post('/fonds/process-reminders',      ctrl.processFondsReminders);
 router.post('/quarterly/process-reminders',  ctrl.processQuarterlyReminders);
+router.post('/quarterly/process-overdue',    ctrl.processCashOverdueReminders);
 
 // ── Inkomen dashboard ────────────────────────────────────────────────────────
 router.get('/income',                        ctrl.getIncomeBreakdown);
