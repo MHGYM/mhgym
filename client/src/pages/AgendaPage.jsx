@@ -402,7 +402,11 @@ export default function AgendaPage() {
   }
 
   useEffect(reload, [from, to])
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = HOUR_PX * 7 }, [])
+  // Scroll naar 08:00 bij laden én bij wisselen tussen week- en dagweergave
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = HOUR_PX * 8
+  }, [viewMode])
 
   useEffect(() => {
     if (isAdmin) {
@@ -976,8 +980,8 @@ export default function AgendaPage() {
 
       {/* ── Dagweergave ───────────────────────────────────────────────── */}
       {viewMode === 'day' && (
-        <div>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 1rem 0.25rem' }}>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 1rem 0.25rem', flexShrink:0 }}>
             <button className="btn-icon" style={{ width:36, height:36 }} onClick={() => setSelectedDay(d => addDays(d, -1))}><ChevronLeft size={20}/></button>
             <div style={{ textAlign:'center' }}>
               <div style={{ fontWeight:700, fontSize:'1.05rem', textTransform:'capitalize' }}>

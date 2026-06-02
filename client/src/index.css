@@ -957,7 +957,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   white-space: nowrap;
 }
 .day-col {
-  position: relative; border-left: 1px solid var(--border);
+  position: relative; border-left: 2px solid rgba(255,255,255,0.13);
   min-height: 100%;
 }
 .today-col { background: rgba(245,194,0,0.015); }

@@ -63,20 +63,23 @@ function AddMemberModal({ onClose, onCreated }) {
 
   const submit = async () => {
     setError('')
-    if (!form.first_name || !form.last_name || !form.email || !form.iban || !form.membership_id) {
+    if (!form.first_name || !form.last_name || !form.email || !form.membership_id) {
       setError('Vul alle verplichte velden in.')
       return
     }
-    // Basic IBAN format check
-    const ibanClean = form.iban.replace(/\s/g, '').toUpperCase()
-    if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(ibanClean)) {
-      setError('Ongeldig IBAN formaat.')
-      return
+    // IBAN check alleen als ingevuld
+    let ibanClean = ''
+    if (form.iban) {
+      ibanClean = form.iban.replace(/\s/g, '').toUpperCase()
+      if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(ibanClean)) {
+        setError('Ongeldig IBAN formaat.')
+        return
+      }
     }
     setLoading(true)
     try {
       const r = await api.post('/admin/members/create-sepa', {
-        ...form, iban: ibanClean,
+        ...form, iban: ibanClean || undefined,
         membership_id: parseInt(form.membership_id),
       })
       setSuccess(r.data.message)
@@ -129,7 +132,7 @@ function AddMemberModal({ onClose, onCreated }) {
               <input className="input" type="tel" value={form.phone} onChange={set('phone')} placeholder="+31 6 12345678"/>
             </div>
             <div>
-              <label className="input-label">IBAN *</label>
+              <label className="input-label">IBAN <span style={{fontWeight:400,color:'var(--text-muted)'}}>— optioneel</span></label>
               <input
                 className="input"
                 value={form.iban}
@@ -138,7 +141,7 @@ function AddMemberModal({ onClose, onCreated }) {
                 style={{fontFamily:'monospace', letterSpacing:'0.05em'}}
               />
               <p style={{fontSize:'0.75rem', color:'var(--text-muted)', marginTop:3}}>
-                SEPA incasso — wordt maandelijks automatisch afgeschreven
+                Optioneel — voor SEPA incasso later in te vullen
               </p>
             </div>
             <div>

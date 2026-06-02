@@ -287,8 +287,8 @@ const addPtLessons = async (req, res) => {
 const createMemberWithSepa = async (req, res) => {
   const { first_name, last_name, email, phone, iban, membership_id } = req.body;
 
-  if (!first_name || !last_name || !email || !iban || !membership_id) {
-    return res.status(400).json({ error: 'Voornaam, achternaam, e-mail, IBAN en abonnement zijn verplicht.' });
+  if (!first_name || !last_name || !email || !membership_id) {
+    return res.status(400).json({ error: 'Voornaam, achternaam, e-mail en abonnement zijn verplicht.' });
   }
 
   // Controleer of e-mail al bestaat
@@ -334,33 +334,39 @@ const createMemberWithSepa = async (req, res) => {
       // Sla customer ID op bij user
       await db.execute({ sql: `UPDATE users SET mollie_customer_id = ? WHERE id = ?`, args: [mollieCustomerId, userId] });
 
-      // SEPA mandate aanmaken via Mollie
-      await mollie.customerMandates.create(mollieCustomerId, {
-        method:          'directdebit',
-        consumerName:    `${first_name.trim()} ${last_name.trim()}`,
-        consumerAccount: iban.replace(/\s/g, '').toUpperCase(),
-      });
+      // SEPA mandate aanmaken via Mollie (alleen als IBAN opgegeven)
+      if (iban) {
+        await mollie.customerMandates.create(mollieCustomerId, {
+          method:          'directdebit',
+          consumerName:    `${first_name.trim()} ${last_name.trim()}`,
+          consumerAccount: iban.replace(/\s/g, '').toUpperCase(),
+        });
+      }
 
-      // Recurring subscription aanmaken (start volgende maand)
-      const nextMonth = new Date();
-      nextMonth.setMonth(nextMonth.getMonth() + 1);
-      const startDate = nextMonth.toISOString().split('T')[0];
+      // Recurring subscription alleen aanmaken als IBAN (mandate) aanwezig is
+      if (iban) {
+        const nextMonth = new Date();
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        const startDate = nextMonth.toISOString().split('T')[0];
 
-      const subscription = await mollie.subscriptions.create({
-        customerId:  mollieCustomerId,
-        amount:      { currency: 'EUR', value: Number(membership.price_monthly).toFixed(2) },
-        interval:    '1 month',
-        startDate,
-        description: `MHGym ${membership.name} (${membership.category}) — maandelijks`,
-        webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
-        metadata: {
-          type:          'subscription_payment',
-          user_id:       String(userId),
-          membership_id: String(membership_id),
-        },
-      });
-      subscriptionId = subscription.id;
-      console.log(`[Admin] Mollie subscription aangemaakt: ${subscriptionId} voor nieuwe user ${userId}`);
+        const subscription = await mollie.subscriptions.create({
+          customerId:  mollieCustomerId,
+          amount:      { currency: 'EUR', value: Number(membership.price_monthly).toFixed(2) },
+          interval:    '1 month',
+          startDate,
+          description: `MHGym ${membership.name} (${membership.category}) — maandelijks`,
+          webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
+          metadata: {
+            type:          'subscription_payment',
+            user_id:       String(userId),
+            membership_id: String(membership_id),
+          },
+        });
+        subscriptionId = subscription.id;
+        console.log(`[Admin] Mollie subscription aangemaakt: ${subscriptionId} voor nieuwe user ${userId}`);
+      } else {
+        console.log(`[Admin] Geen IBAN — subscription overgeslagen voor user ${userId}`);
+      }
     } else {
       console.warn('[Admin] Geen Mollie API key — SEPA mandate overgeslagen voor user', userId);
     }
