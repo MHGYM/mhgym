@@ -165,7 +165,7 @@ const registerCashPayment = async (req, res) => {
 /** Alle cash-betalende leden met kwartaalinfo */
 const getCashMembers = async (req, res) => {
   const result = await db.execute(`
-    SELECT u.id, u.first_name, u.last_name, u.email, u.phone,
+    SELECT u.id AS user_id, u.first_name, u.last_name, u.email, u.phone,
            um.id AS membership_id, um.quarterly_amount, um.next_quarter_due,
            um.last_quarter_paid, um.quarter_reminder_sent,
            um.status AS membership_status, um.membership_type_key, um.start_date,
@@ -225,6 +225,7 @@ const listFondsMembers = async (req, res) => {
   const args = [];
   if (type)   { sql += ' AND LOWER(fm.fonds_type) = LOWER(?)'; args.push(type); }
   if (status) { sql += ' AND fm.status = ?'; args.push(status); }
+  else        { sql += " AND fm.status != 'cancelled'"; }
   sql += ' ORDER BY fm.end_date ASC';
   const result = await db.execute({ sql, args });
   res.json({ members: result.rows });
