@@ -9,7 +9,7 @@
  */
 const db = require('../config/database');
 const { sendPush } = require('./ptController');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail, sendCashRegistrationEmail, sendFondsActivationEmail, sendPtSessionsAddedEmail } = require('../services/emailService');
 
 // ── Cash betalingen ──────────────────────────────────────────────────────────
 
@@ -25,16 +25,28 @@ const logCashPayment = async (req, res) => {
     args: [user_id, amount, payment_date, payment_type || 'membership', sessions_paid || null, note || null, req.user.id],
   });
 
-  // Als het PT sessies zijn, voeg ook toe aan pt_purchases
+  // Als het PT sessies zijn, voeg ook toe aan pt_purchases + stuur bevestigingsmail
   if (payment_type === 'pt' && sessions_paid) {
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    const expiresAtStr = expiresAt.toISOString().split('T')[0];
     const pricePerSession = sessions_paid > 0 ? Number(amount) / Number(sessions_paid) : 0;
     await db.execute({
       sql: `INSERT INTO pt_purchases (user_id, package_id, lessons_total, lessons_remaining, lessons_used, amount, status, expires_at)
             VALUES (?, 'cash_pt', ?, ?, 0, ?, 'paid', ?)`,
-      args: [user_id, sessions_paid, sessions_paid, Number(amount), expiresAt.toISOString().split('T')[0]],
+      args: [user_id, sessions_paid, sessions_paid, Number(amount), expiresAtStr],
     });
+    // Bevestigingsmail aan het lid
+    const userRes = await db.execute({ sql: 'SELECT email, first_name FROM users WHERE id = ?', args: [user_id] });
+    if (userRes.rows[0]) {
+      sendPtSessionsAddedEmail({
+        to: userRes.rows[0].email,
+        firstName: userRes.rows[0].first_name,
+        sessionsPaid: Number(sessions_paid),
+        amount: Number(amount),
+        expiresAt: expiresAtStr,
+      }).catch(e => console.error('[Email] PT sessions added:', e.message));
+    }
   }
 
   res.status(201).json({ id: Number(result.lastInsertRowid), message: 'Cash betaling geregistreerd.' });
@@ -159,6 +171,17 @@ const registerCashPayment = async (req, res) => {
     args: [user_id, paidAmount, payment_date, note || `Kwartaalbetaling ${payment_date}`, req.user.id],
   });
 
+  // Bevestigingsmail aan het lid
+  const userForEmail = await db.execute({ sql: 'SELECT email, first_name FROM users WHERE id = ?', args: [user_id] });
+  if (userForEmail.rows[0]) {
+    sendCashRegistrationEmail({
+      to: userForEmail.rows[0].email,
+      firstName: userForEmail.rows[0].first_name,
+      amount: paidAmount,
+      nextDue: next_quarter_due,
+    }).catch(e => console.error('[Email] cash registration:', e.message));
+  }
+
   res.status(201).json({ message: 'Cash betaling geregistreerd.', next_due: next_quarter_due });
 };
 
@@ -203,10 +226,18 @@ const createFondsMembership = async (req, res) => {
     args: [fondsId, user_id],
   });
 
-  // Stuur welkomstbericht naar lid
+  // Stuur push + bevestigingsmail naar lid
   const userRes = await db.execute({ sql: 'SELECT email, first_name FROM users WHERE id = ?', args: [user_id] });
   if (userRes.rows[0]) {
-    await sendPush(user_id, '✅ Fonds geactiveerd!', `Je ${fonds_name || fonds_type} is geactiveerd t/m ${end_date}.`).catch(() => {});
+    const fondsLabel = fonds_name || fonds_type;
+    sendPush(user_id, '✅ Fonds geactiveerd!', `Je ${fondsLabel} is geactiveerd t/m ${end_date}.`).catch(() => {});
+    sendFondsActivationEmail({
+      to: userRes.rows[0].email,
+      firstName: userRes.rows[0].first_name,
+      fondsLabel,
+      startDate: start_date,
+      endDate: end_date,
+    }).catch(e => console.error('[Email] fonds activation:', e.message));
   }
 
   res.status(201).json({ id: fondsId, message: 'Fonds lidmaatschap aangemaakt.' });

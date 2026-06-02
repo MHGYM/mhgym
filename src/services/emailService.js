@@ -347,17 +347,22 @@ async function sendPasswordResetEmail({ to, firstName, resetUrl }) {
 
 /**
  * Welkomstmail voor door admin aangemaakte leden (incl. tijdelijk wachtwoord)
+ * memberNote: optionele context-specifieke tekst (bijv. SEPA-info voor incasso-leden)
  */
-async function sendAdminWelcomeEmail({ to, firstName, tempPassword, loginUrl }) {
+async function sendAdminWelcomeEmail({ to, firstName, tempPassword, loginUrl, memberNote }) {
   const url = loginUrl || `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
+  const noteHtml = memberNote
+    ? `<p style="color:#666;font-size:13px">${memberNote}<br><br>Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a></p>`
+    : `<p style="color:#666;font-size:13px">Via de app kun je het lesrooster bekijken, lessen reserveren en je boekingen beheren.<br><br>Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a></p>`;
+
   const html = `
     <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
       ${headerHtml()}
       <div style="padding:32px">
         <h2 style="color:#F5C200;margin:0 0 12px">Welkom bij MHGym, ${firstName}! 🥊</h2>
         <p style="color:#ccc;line-height:1.6">
-          Je lidmaatschap is door onze administratie aangemaakt en is direct actief.
-          Je kunt hieronder inloggen op de MHGym app met je tijdelijke wachtwoord.
+          Je account is aangemaakt door de administratie en staat klaar.
+          Log hieronder in met je tijdelijke wachtwoord.
         </p>
 
         <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
@@ -383,15 +388,148 @@ async function sendAdminWelcomeEmail({ to, firstName, tempPassword, loginUrl }) 
           </a>
         </div>
 
-        <p style="color:#666;font-size:13px">
-          Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch het abonnementsbedrag afgeschreven.<br><br>
-          Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a>
-        </p>
+        ${noteHtml}
       </div>
       ${footerHtml()}
     </div>`;
 
   await sendMail({ to, subject: `Welkom bij MHGym, ${firstName}! — je account is klaar`, html });
+}
+
+/**
+ * Bevestigingsmail bij registratie als cash kwartaalbetaler
+ */
+async function sendCashRegistrationEmail({ to, firstName, amount, nextDue }) {
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : '–';
+  const loginUrl = `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">Cash lidmaatschap geregistreerd 💪</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je cash betaling is geregistreerd. Hieronder een overzicht.</p>
+
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <p style="color:#F5C200;font-weight:700;margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px">Betalingsoverzicht</p>
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Bedrag per kwartaal</td>
+                <td style="color:#F5C200;font-weight:700;text-align:right">€${Number(amount).toFixed(2)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Volgende betaaldatum</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${fmt(nextDue)}</td></tr>
+          </table>
+        </div>
+
+        <p style="color:#ccc;font-size:13px;line-height:1.6">
+          Je betaalt elk kwartaal contant aan de balie. Je ontvangt een herinnering wanneer de volgende betaling nadert.
+        </p>
+
+        <div style="margin:24px 0;text-align:center">
+          <a href="${loginUrl}"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Inloggen op MHGym
+          </a>
+        </div>
+
+        <p style="color:#666;font-size:13px">Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a><br>Tot in de gym! 🥊</p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — cash lidmaatschap geregistreerd`, html });
+}
+
+/**
+ * Bevestigingsmail bij activatie van een fonds lidmaatschap
+ */
+async function sendFondsActivationEmail({ to, firstName, fondsLabel, startDate, endDate }) {
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : '–';
+  const loginUrl = `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">Fonds lidmaatschap actief! 🎉</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je fonds is geactiveerd. Hieronder vind je de details.</p>
+
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <p style="color:#F5C200;font-weight:700;margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px">Fondsgegevens</p>
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Fonds</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${fondsLabel}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Startdatum</td>
+                <td style="color:#fff;text-align:right">${fmt(startDate)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Geldig tot</td>
+                <td style="color:#F5C200;font-weight:700;text-align:right">${fmt(endDate)}</td></tr>
+          </table>
+        </div>
+
+        <div style="background:#0f1a00;border:1px solid #2a4a00;border-radius:8px;padding:16px;margin:16px 0">
+          <p style="color:#86efac;margin:0;font-size:13px;line-height:1.6">
+            <strong>Vergeet niet</strong> om op tijd een nieuw fonds aan te vragen zodra deze afloopt.
+            Je ontvangt automatisch een herinnering ruim van tevoren.
+          </p>
+        </div>
+
+        <div style="margin:24px 0;text-align:center">
+          <a href="${loginUrl}"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Inloggen op MHGym
+          </a>
+        </div>
+
+        <p style="color:#666;font-size:13px">Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a><br>Tot in de gym! 🥊</p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — ${fondsLabel} is geactiveerd t/m ${fmt(endDate)}`, html });
+}
+
+/**
+ * Bevestigingsmail bij toevoeging van cash PT sessies
+ */
+async function sendPtSessionsAddedEmail({ to, firstName, sessionsPaid, amount, expiresAt }) {
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : '–';
+  const loginUrl = `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/personal-training`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">PT sessies toegevoegd! 💪</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je Personal Training sessies zijn geregistreerd.</p>
+
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <p style="color:#F5C200;font-weight:700;margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px">Overzicht</p>
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Sessies gekocht</td>
+                <td style="color:#F5C200;font-weight:700;text-align:right">${sessionsPaid} sessie${sessionsPaid !== 1 ? 's' : ''}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Bedrag betaald</td>
+                <td style="color:#fff;font-weight:600;text-align:right">€${Number(amount).toFixed(2)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Geldig tot</td>
+                <td style="color:#fff;text-align:right">${fmt(expiresAt)}</td></tr>
+          </table>
+        </div>
+
+        <p style="color:#ccc;font-size:13px;line-height:1.6">
+          Boek een sessie via de app zodra er een PT slot beschikbaar is. Je lessen vervallen 12 maanden na aankoop.
+        </p>
+
+        <div style="margin:24px 0;text-align:center">
+          <a href="${loginUrl}"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Boek een PT sessie
+          </a>
+        </div>
+
+        <p style="color:#666;font-size:13px">Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a><br>Tot snel! 🥊</p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — ${sessionsPaid} PT sessie${sessionsPaid !== 1 ? 's' : ''} toegevoegd`, html });
 }
 
 /**
@@ -544,6 +682,7 @@ module.exports = {
   sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail,
   sendPasswordResetEmail, sendEmail,
   sendAdminWelcomeEmail,
+  sendCashRegistrationEmail, sendFondsActivationEmail, sendPtSessionsAddedEmail,
   sendPaymentFailedMemberEmail, sendPaymentFailedAdminEmail,
   sendChargebackMemberEmail, sendChargebackAdminEmail,
 };

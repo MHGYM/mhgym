@@ -398,11 +398,15 @@ const createMemberWithSepa = async (req, res) => {
 
   // Welkomstmail sturen
   const loginUrl = `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
+  const memberNote = iban
+    ? 'Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch het abonnementsbedrag afgeschreven.'
+    : 'Via de app kun je het lesrooster bekijken, lessen reserveren en je boekingen beheren. Je betaalt contant aan de balie.';
   sendAdminWelcomeEmail({
     to: email.toLowerCase().trim(),
     firstName: first_name.trim(),
     tempPassword,
     loginUrl,
+    memberNote,
   }).catch(e => console.error('[Email] admin welcome:', e.message));
 
   console.log(`[Admin] Nieuw lid aangemaakt: ${email} (user ${userId}) — subscription: ${subscriptionId || 'geen'}`);
