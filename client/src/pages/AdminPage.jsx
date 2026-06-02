@@ -1499,6 +1499,8 @@ function KwartaalTab() {
     next_quarter_due: (() => { const d = new Date(); d.setMonth(d.getMonth()+3); return d.toISOString().split('T')[0] })(),
   })
   const [allMembers, setAllMembers] = useState([])
+  const [editMem, setEditMem] = useState(null)
+  const [editMemForm, setEditMemForm] = useState({ quarterly_amount: '', next_quarter_due: '' })
 
   const load = () => {
     setLoading(true)
@@ -1546,6 +1548,26 @@ function KwartaalTab() {
     const r = await api.post('/cash/quarterly/process-overdue')
     const n = r.data.results.newly_overdue
     alert(n > 0 ? `⚠️ ${n} lid${n !== 1 ? 'en' : ''} met achterstand gemeld (push + e-mail verstuurd).` : '✅ Geen nieuwe achterstanden gevonden.')
+  }
+
+  const startEditMem = (m) => {
+    setEditMem(m.user_id)
+    setEditMemForm({ quarterly_amount: m.quarterly_amount||'', next_quarter_due: m.next_quarter_due||'' })
+  }
+
+  const saveEditMem = async () => {
+    try {
+      await api.put(`/cash/members/${editMem}`, { quarterly_amount: parseFloat(editMemForm.quarterly_amount)||undefined, next_quarter_due: editMemForm.next_quarter_due||undefined })
+      setEditMem(null); load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const deleteMem = async (userId, name) => {
+    if (!confirm(`${name} uitschrijven als cash betaler?`)) return
+    try {
+      await api.delete(`/cash/members/${userId}`)
+      load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
   }
 
   const overdueCount = members.filter(m => Number(m.days_until_due||0) < 0).length
@@ -1619,34 +1641,61 @@ function KwartaalTab() {
         const urgent = days <= 7
         const warning = days <= 14
         const overdue = days < 0
+        const isEditing = editMem === m.user_id
         return (
           <div key={m.membership_id} className="card" style={{marginBottom:'0.75rem',borderColor:urgent?'var(--error)':warning?'var(--warning)':'var(--border)'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-              <div>
-                <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
-                  {m.first_name} {m.last_name}
-                  {overdue && <span className="badge-error" style={{fontSize:'0.7rem'}}>ACHTERSTALLIG</span>}
-                  {!overdue && urgent && <span className="badge-error" style={{fontSize:'0.7rem'}}>DEZE WEEK</span>}
-                  {!overdue && !urgent && warning && <span className="badge-warning" style={{fontSize:'0.7rem'}}>BINNENKORT</span>}
+            {isEditing ? (
+              <>
+                <h4 style={{marginBottom:'0.6rem',color:'var(--text-2)'}}>Bewerken — {m.first_name} {m.last_name}</h4>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem'}}>
+                  <div>
+                    <label className="input-label">Bedrag/kwartaal (€)</label>
+                    <input className="input" type="number" min="0" step="0.01" value={editMemForm.quarterly_amount} onChange={e => setEditMemForm({...editMemForm,quarterly_amount:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="input-label">Volgende betaaldatum</label>
+                    <input className="input" type="date" value={editMemForm.next_quarter_due} onChange={e => setEditMemForm({...editMemForm,next_quarter_due:e.target.value})}/>
+                  </div>
                 </div>
-                <div style={{fontSize:'0.82rem',color:'var(--text-muted)'}}>{m.email}</div>
-                <div style={{fontSize:'0.82rem',marginTop:4}}>
-                  {m.membership_name||m.membership_type_key} · €{m.quarterly_amount}/kwartaal
+                <div style={{display:'flex',gap:'0.5rem',marginTop:'0.6rem'}}>
+                  <button className="btn btn-primary btn-sm" onClick={saveEditMem}><Check size={13}/> Opslaan</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditMem(null)}><X size={13}/> Annuleren</button>
                 </div>
-              </div>
-              <div style={{textAlign:'right',flexShrink:0}}>
-                <div style={{fontWeight:800,fontSize:'1.1rem',color:overdue?'var(--error)':urgent?'var(--warning)':'var(--text-2)'}}>
-                  {m.next_quarter_due ? fmtDate(m.next_quarter_due) : '—'}
+              </>
+            ) : (
+              <>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div>
+                    <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
+                      {m.first_name} {m.last_name}
+                      {overdue && <span className="badge-error" style={{fontSize:'0.7rem'}}>ACHTERSTALLIG</span>}
+                      {!overdue && urgent && <span className="badge-error" style={{fontSize:'0.7rem'}}>DEZE WEEK</span>}
+                      {!overdue && !urgent && warning && <span className="badge-warning" style={{fontSize:'0.7rem'}}>BINNENKORT</span>}
+                    </div>
+                    <div style={{fontSize:'0.82rem',color:'var(--text-muted)'}}>{m.email}</div>
+                    <div style={{fontSize:'0.82rem',marginTop:4}}>
+                      {m.membership_name||m.membership_type_key} · €{m.quarterly_amount}/kwartaal
+                    </div>
+                  </div>
+                  <div style={{textAlign:'right',flexShrink:0}}>
+                    <div style={{fontWeight:800,fontSize:'1.1rem',color:overdue?'var(--error)':urgent?'var(--warning)':'var(--text-2)'}}>
+                      {m.next_quarter_due ? fmtDate(m.next_quarter_due) : '—'}
+                    </div>
+                    <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>
+                      {overdue ? `${Math.abs(days)}d te laat` : `over ${days}d`}
+                    </div>
+                    {m.last_quarter_paid && <div style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>Laatste: {fmtDate(m.last_quarter_paid)}</div>}
+                  </div>
                 </div>
-                <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>
-                  {overdue ? `${Math.abs(days)}d te laat` : `over ${days}d`}
+                <div style={{display:'flex',gap:'0.5rem',marginTop:'0.6rem',flexWrap:'wrap'}}>
+                  <button className="btn btn-sm" style={{background:'var(--success-dim)',color:'var(--success)'}} onClick={() => markPaid(m)}>
+                    <Check size={13}/> Betaling ontvangen
+                  </button>
+                  <button className="btn btn-outline btn-sm" onClick={() => startEditMem(m)}><Edit2 size={13}/> Bewerken</button>
+                  <button className="btn btn-ghost btn-sm" style={{color:'var(--error)'}} onClick={() => deleteMem(m.user_id, `${m.first_name} ${m.last_name}`)}><Trash2 size={13}/> Verwijderen</button>
                 </div>
-                {m.last_quarter_paid && <div style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>Laatste: {fmtDate(m.last_quarter_paid)}</div>}
-              </div>
-            </div>
-            <button className="btn btn-sm" style={{marginTop:'0.6rem',background:'var(--success-dim)',color:'var(--success)'}} onClick={() => markPaid(m)}>
-              <Check size={13}/> Betaling ontvangen
-            </button>
+              </>
+            )}
           </div>
         )
       })}
@@ -1659,8 +1708,10 @@ function FondsTab() {
   const [loading, setLoading] = useState(true)
   const [showNew, setShowNew] = useState(false)
   const [filterType, setFilterType] = useState('')
-  const [form,    setForm]    = useState({ user_id:'', fonds_type:'jeugdsportfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', notes:'' })
+  const [form, setForm] = useState({ user_id:'', fonds_type:'jeugdsportfonds', fonds_name:'', start_date: new Date().toISOString().split('T')[0], end_date:'', notes:'' })
   const [allMembers, setAllMembers] = useState([])
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState({})
 
   const load = () => {
     setLoading(true)
@@ -1685,11 +1736,22 @@ function FondsTab() {
     } catch(e) { alert(e.response?.data?.error||'Fout') }
   }
 
-  const renewFonds = async fonds => {
-    const newEnd = prompt('Nieuwe einddatum (YYYY-MM-DD):', fonds.end_date)
-    if (!newEnd) return
+  const startEdit = (m) => {
+    setEditId(m.id)
+    setEditForm({ fonds_type: m.fonds_type||'jeugdsportfonds', fonds_name: m.fonds_name||'', start_date: m.start_date||'', end_date: m.end_date||'', notes: m.notes||'', status: m.status||'active' })
+  }
+
+  const saveFonds = async () => {
     try {
-      await api.put(`/cash/fonds/${fonds.id}`, { end_date: newEnd, status: 'active' })
+      await api.put(`/cash/fonds/${editId}`, editForm)
+      setEditId(null); load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const deleteFonds = async (id) => {
+    if (!confirm('Fonds lidmaatschap verwijderen?')) return
+    try {
+      await api.delete(`/cash/fonds/${id}`)
       load()
     } catch(e) { alert(e.response?.data?.error||'Fout') }
   }
@@ -1772,37 +1834,80 @@ function FondsTab() {
       {members.map(m => {
         const days = Number(m.days_remaining || 0)
         const { label, color } = statusForDays(days)
+        const isEditing = editId === m.id
         return (
           <div key={m.id} className="card" style={{marginBottom:'0.6rem',borderColor:days<=0?'var(--error)':days<=30?'var(--warning)':'var(--border)'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-              <div>
-                <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
-                  {m.first_name} {m.last_name}
-                  {days <= 0 && <span className="badge-error" style={{fontSize:'0.7rem'}}>VERLOPEN</span>}
-                  {days > 0 && days <= 30 && <span className="badge-warning" style={{fontSize:'0.7rem'}}>VERLOOPT BINNENKORT</span>}
+            {isEditing ? (
+              <>
+                <h4 style={{marginBottom:'0.6rem',color:'var(--text-2)'}}>Fonds bewerken — {m.first_name} {m.last_name}</h4>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem'}}>
+                  <div>
+                    <label className="input-label">Fonds type</label>
+                    <select className="input" value={editForm.fonds_type} onChange={e => setEditForm({...editForm,fonds_type:e.target.value})}>
+                      <option value="jeugdsportfonds">Jeugdsportfonds</option>
+                      <option value="volwassenenfonds">Volwassenenfonds</option>
+                      <option value="overig">Overig</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="input-label">Fonds naam</label>
+                    <input className="input" value={editForm.fonds_name} onChange={e => setEditForm({...editForm,fonds_name:e.target.value})} placeholder="Bijv. Stadjerspas"/>
+                  </div>
+                  <div>
+                    <label className="input-label">Startdatum</label>
+                    <input className="input" type="date" value={editForm.start_date} onChange={e => setEditForm({...editForm,start_date:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="input-label">Verloopdatum</label>
+                    <input className="input" type="date" value={editForm.end_date} onChange={e => setEditForm({...editForm,end_date:e.target.value})}/>
+                  </div>
+                  <div>
+                    <label className="input-label">Status</label>
+                    <select className="input" value={editForm.status} onChange={e => setEditForm({...editForm,status:e.target.value})}>
+                      <option value="active">Actief</option>
+                      <option value="expired">Verlopen</option>
+                      <option value="cancelled">Geannuleerd</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="input-label">Notities</label>
+                    <input className="input" value={editForm.notes} onChange={e => setEditForm({...editForm,notes:e.target.value})} placeholder="Optioneel"/>
+                  </div>
                 </div>
-                <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>{m.email}</div>
-                <div style={{fontSize:'0.82rem',marginTop:3}}>
-                  🏛️ {m.fonds_name||m.fonds_type}
-                  {m.amount_covered ? <span style={{marginLeft:8,color:'var(--text-muted)'}}>€{m.amount_covered}</span> : null}
+                <div style={{display:'flex',gap:'0.5rem',marginTop:'0.6rem'}}>
+                  <button className="btn btn-primary btn-sm" onClick={saveFonds}><Check size={13}/> Opslaan</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditId(null)}><X size={13}/> Annuleren</button>
                 </div>
-                <div style={{fontSize:'0.78rem',marginTop:2,color:'var(--text-muted)'}}>
-                  {fmtDate(m.start_date)} → {fmtDate(m.end_date)}
+              </>
+            ) : (
+              <>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div>
+                    <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
+                      {m.first_name} {m.last_name}
+                      {days <= 0 && <span className="badge-error" style={{fontSize:'0.7rem'}}>VERLOPEN</span>}
+                      {days > 0 && days <= 30 && <span className="badge-warning" style={{fontSize:'0.7rem'}}>VERLOOPT BINNENKORT</span>}
+                    </div>
+                    <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>{m.email}</div>
+                    <div style={{fontSize:'0.82rem',marginTop:3}}>
+                      🏛️ {m.fonds_name||m.fonds_type}
+                      {m.amount_covered ? <span style={{marginLeft:8,color:'var(--text-muted)'}}>€{m.amount_covered}</span> : null}
+                    </div>
+                    <div style={{fontSize:'0.78rem',marginTop:2,color:'var(--text-muted)'}}>
+                      {fmtDate(m.start_date)} → {fmtDate(m.end_date)}
+                    </div>
+                  </div>
+                  <div style={{textAlign:'right',flexShrink:0}}>
+                    <div style={{fontWeight:800,color,fontSize:'0.9rem'}}>{label}</div>
+                    <div style={{fontSize:'0.75rem',color:'var(--text-muted)',marginTop:2}}>{m.status}</div>
+                  </div>
                 </div>
-              </div>
-              <div style={{textAlign:'right',flexShrink:0}}>
-                <div style={{fontWeight:800,color,fontSize:'0.9rem'}}>{label}</div>
-                <div style={{fontSize:'0.75rem',color:'var(--text-muted)',marginTop:2}}>{m.status}</div>
-              </div>
-            </div>
-            <div style={{display:'flex',gap:'0.5rem',marginTop:'0.6rem',flexWrap:'wrap'}}>
-              <button className="btn btn-outline btn-sm" onClick={() => renewFonds(m)}><Plus size={13}/> Verlengen</button>
-              {m.status !== 'expired' && (
-                <button className="btn btn-ghost btn-sm" onClick={async () => {
-                  await api.put(`/cash/fonds/${m.id}`, { status: 'expired' }); load()
-                }}><X size={13}/> Markeer verlopen</button>
-              )}
-            </div>
+                <div style={{display:'flex',gap:'0.5rem',marginTop:'0.6rem',flexWrap:'wrap'}}>
+                  <button className="btn btn-outline btn-sm" onClick={() => startEdit(m)}><Edit2 size={13}/> Bewerken</button>
+                  <button className="btn btn-ghost btn-sm" style={{color:'var(--error)'}} onClick={() => deleteFonds(m.id)}><Trash2 size={13}/> Verwijderen</button>
+                </div>
+              </>
+            )}
           </div>
         )
       })}
@@ -1811,18 +1916,25 @@ function FondsTab() {
 }
 
 function CashPtTab() {
-  const [members, setMembers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [showAdd, setShowAdd] = useState(null)  // user_id
-  const [addForm, setAddForm] = useState({ amount:'', sessions_paid:'', payment_date: new Date().toISOString().split('T')[0], note:'' })
+  const [members,    setMembers]    = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [allMembers, setAllMembers] = useState([])
+  const [showAdd,    setShowAdd]    = useState(null)   // user_id (per-member log form)
+  const [showNew,    setShowNew]    = useState(false)  // top-level new PT member form
+  const [addForm,    setAddForm]    = useState({ amount:'', sessions_paid:'', payment_date: new Date().toISOString().split('T')[0], note:'' })
+  const [newForm,    setNewForm]    = useState({ user_id:'', amount:'', sessions_paid:'', payment_date: new Date().toISOString().split('T')[0], note:'' })
 
   const load = () => {
     setLoading(true)
     api.get('/cash/pt-overview').then(r => { setMembers(r.data.members||[]); setLoading(false) }).catch(() => setLoading(false))
   }
-  useEffect(load, [])
+  useEffect(() => {
+    load()
+    api.get('/admin/members').then(r => setAllMembers(r.data.members||[])).catch(() => {})
+  }, [])
 
   const logPayment = async (userId) => {
+    if (!addForm.amount || !addForm.sessions_paid) return alert('Vul bedrag en aantal sessies in.')
     try {
       await api.post('/cash/payments', {
         user_id: userId,
@@ -1836,19 +1948,76 @@ function CashPtTab() {
     } catch(e) { alert(e.response?.data?.error||'Fout') }
   }
 
+  const submitNew = async () => {
+    if (!newForm.user_id || !newForm.amount || !newForm.sessions_paid) return alert('Selecteer een lid en vul bedrag en sessies in.')
+    try {
+      await api.post('/cash/payments', {
+        user_id: newForm.user_id,
+        amount: parseFloat(newForm.amount),
+        payment_date: newForm.payment_date,
+        payment_type: 'pt',
+        sessions_paid: parseInt(newForm.sessions_paid)||null,
+        note: newForm.note,
+      })
+      setShowNew(false)
+      setNewForm({ user_id:'', amount:'', sessions_paid:'', payment_date: new Date().toISOString().split('T')[0], note:'' })
+      load()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
   if (loading) return <p style={{color:'var(--text-muted)'}}>Laden…</p>
 
   const totalCashPt = members.reduce((s, m) => s + Number(m.total_cash_income||0), 0)
 
   return (
     <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
-        <h2 style={{margin:0}}>Cash PT Overzicht</h2>
-        <div style={{fontWeight:700,color:'var(--success)'}}>Totaal: {fmtMoney(totalCashPt)}</div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem',flexWrap:'wrap',gap:'0.5rem'}}>
+        <h2 style={{margin:0}}>
+          Cash PT Overzicht
+          <span style={{marginLeft:10,fontWeight:400,fontSize:'0.9rem',color:'var(--success)'}}>Totaal: {fmtMoney(totalCashPt)}</span>
+        </h2>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowNew(s=>!s)}>
+          {showNew ? <><X size={13}/> Annuleren</> : <><Plus size={13}/> Nieuw PT lid</>}
+        </button>
       </div>
 
-      {members.length === 0 && (
-        <p style={{color:'var(--text-muted)',textAlign:'center'}}>Geen cash PT betalingen</p>
+      {showNew && (
+        <div className="card" style={{marginBottom:'1rem'}}>
+          <h3 style={{marginBottom:'0.75rem'}}>Cash PT betaling registreren</h3>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
+            <div style={{gridColumn:'span 2'}}>
+              <label className="input-label">Lid *</label>
+              <select className="input" value={newForm.user_id} onChange={e => setNewForm({...newForm,user_id:e.target.value})}>
+                <option value="">— Selecteer lid —</option>
+                {allMembers.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name} ({m.email})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="input-label">Bedrag (€) *</label>
+              <input className="input" type="number" min="0" step="0.01" placeholder="70" value={newForm.amount} onChange={e => setNewForm({...newForm,amount:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Sessies betaald *</label>
+              <input className="input" type="number" min="1" placeholder="10" value={newForm.sessions_paid} onChange={e => setNewForm({...newForm,sessions_paid:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Betaaldatum *</label>
+              <input className="input" type="date" value={newForm.payment_date} onChange={e => setNewForm({...newForm,payment_date:e.target.value})}/>
+            </div>
+            <div>
+              <label className="input-label">Notitie</label>
+              <input className="input" placeholder="Optioneel" value={newForm.note} onChange={e => setNewForm({...newForm,note:e.target.value})}/>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
+            <button className="btn btn-primary btn-sm" onClick={submitNew}><Check size={13}/> Opslaan</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowNew(false)}><X size={13}/> Annuleren</button>
+          </div>
+        </div>
+      )}
+
+      {members.length === 0 && !showNew && (
+        <p style={{color:'var(--text-muted)',textAlign:'center'}}>Geen cash PT betalingen. Klik op "Nieuw PT lid" om te beginnen.</p>
       )}
 
       {members.map(m => {
@@ -1886,7 +2055,7 @@ function CashPtTab() {
                 </div>
               </div>
             ) : (
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowAdd(m.id)}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setShowAdd(m.id); setAddForm({ amount:'', sessions_paid:'', payment_date: new Date().toISOString().split('T')[0], note:'' }) }}>
                 <Plus size={13}/> Cash PT betaling loggen
               </button>
             )}
@@ -1898,19 +2067,44 @@ function CashPtTab() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// GECOMBINEERDE BETALINGEN SECTIE
+// ════════════════════════════════════════════════════════════════════
+function BetalingenCombinedSection() {
+  const [tab, setTab] = useState('fouten')
+  const tabs = [
+    { key:'fouten',   label:'⚠️ Betalingsfouten' },
+    { key:'overzicht', label:'💳 Overzicht'       },
+  ]
+  return (
+    <div>
+      <div style={{display:'flex',gap:'0.5rem',marginBottom:'1.25rem',borderBottom:'1px solid var(--border)',paddingBottom:'0.5rem'}}>
+        {tabs.map(t => (
+          <button key={t.key}
+            className={`btn btn-sm${tab===t.key?' btn-primary':' btn-ghost'}`}
+            onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab==='fouten'    && <BetalingenSection/>}
+      {tab==='overzicht' && <BetalingOverview/>}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
 // HOOFD COMPONENT
 // ════════════════════════════════════════════════════════════════════
 const MENU = [
-  { key:'dashboard',  label:'Dashboard',        Icon:LayoutDashboard },
-  { key:'leden',      label:'Leden',             Icon:Users           },
-  { key:'cashfonds',  label:'Cash & Fonds',      Icon:Banknote        },
-  { key:'inkomen',    label:'Inkomen',           Icon:TrendingUp      },
-  { key:'pt',         label:'PT Agenda',          Icon:Zap             },
-  { key:'vt',         label:'Vrij Trainen',       Icon:Calendar        },
-  { key:'betalingen', label:'Betalingsfouten',    Icon:AlertTriangle   },
-  { key:'community',  label:'Community',          Icon:Users2          },
-  { key:'rooster',    label:'Rooster',            Icon:Calendar        },
-  { key:'payments',   label:'Betalingen',         Icon:CreditCard      },
+  { key:'dashboard',  label:'Dashboard',    Icon:LayoutDashboard },
+  { key:'leden',      label:'Leden',         Icon:Users           },
+  { key:'cashfonds',  label:'Cash & Fonds',  Icon:Banknote        },
+  { key:'inkomen',    label:'Inkomen',       Icon:TrendingUp      },
+  { key:'pt',         label:'PT Agenda',     Icon:Zap             },
+  { key:'vt',         label:'Vrij Trainen',  Icon:Calendar        },
+  { key:'betalingen', label:'Betalingen',    Icon:CreditCard      },
+  { key:'community',  label:'Community',     Icon:Users2          },
+  { key:'rooster',    label:'Rooster',       Icon:Calendar        },
 ]
 
 export default function AdminPage() {
@@ -1933,10 +2127,9 @@ export default function AdminPage() {
         {section==='vt'         && <VTAgendaSection/>}
         {section==='cashfonds'  && <CashFondsSection/>}
         {section==='inkomen'    && <InkomenSection/>}
-        {section==='betalingen' && <BetalingenSection/>}
+        {section==='betalingen' && <BetalingenCombinedSection/>}
         {section==='community'  && <CommunityBeheer/>}
         {section==='rooster'    && <RoosterSection/>}
-        {section==='payments'   && <BetalingOverview/>}
       </main>
     </div>
   )

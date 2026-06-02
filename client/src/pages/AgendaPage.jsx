@@ -15,6 +15,22 @@ const CLASS_CATS = [
 ]
 const TRAINERS = ['Mohammed','Ecrin','Joep']
 
+// Genereer lijst van datums op basis van herhaling
+function getDatesForRepeat(startDate, repeatType, repeatUntil) {
+  if (!repeatType || repeatType === 'none' || !repeatUntil) return [startDate]
+  const dates = []
+  let cur = new Date(startDate + 'T12:00:00')
+  const end = new Date(repeatUntil + 'T12:00:00')
+  while (cur <= end && dates.length < 156) { // max 3 jaar dagelijks
+    dates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`)
+    if (repeatType === 'daily')        cur.setDate(cur.getDate() + 1)
+    else if (repeatType === 'weekly')  cur.setDate(cur.getDate() + 7)
+    else if (repeatType === 'monthly') cur.setMonth(cur.getMonth() + 1)
+    else break
+  }
+  return dates
+}
+
 function getMonday(d) {
   const date = new Date(d)
   const day  = date.getDay() || 7
@@ -338,11 +354,11 @@ export default function AgendaPage() {
 
   // Admin: VT slot form
   const [showNewSlot, setShowNewSlot] = useState(false)
-  const [newSlot,     setNewSlot]     = useState({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'' })
+  const [newSlot,     setNewSlot]     = useState({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'', repeat_type:'none', repeat_until:'' })
 
   // Admin: PT slot form
   const [showNewPtSlot, setShowNewPtSlot] = useState(false)
-  const [newPtSlot,     setNewPtSlot]     = useState({ date_time:'', duration_minutes:60, trainer:'Mohammed', notes:'' })
+  const [newPtSlot,     setNewPtSlot]     = useState({ date_time:'', duration_minutes:60, trainer:'Mohammed', notes:'', repeat_type:'none', repeat_until:'' })
 
   // Admin: Class creation form
   const [showNewClass, setShowNewClass] = useState(false)
@@ -539,25 +555,36 @@ export default function AgendaPage() {
     if (!newSlot.date || !newSlot.start_time || !newSlot.end_time) {
       return alert('Vul alle velden in.')
     }
-    try {
-      const r = await api.post('/vt/admin/slots', newSlot)
-      const count = r.data.count || 1
-      setShowNewSlot(false)
-      setNewSlot({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'' })
-      reload()
-      if (count > 1) alert(`${count} VT slots van 1 uur aangemaakt!`)
-    } catch (e) { alert(e.response?.data?.error || 'Fout') }
+    const dates = getDatesForRepeat(newSlot.date, newSlot.repeat_type, newSlot.repeat_until)
+    let total = 0
+    for (const date of dates) {
+      try {
+        const r = await api.post('/vt/admin/slots', { ...newSlot, date })
+        total += r.data.count || 1
+      } catch (e) { console.error('VT slot fout voor', date, e.response?.data?.error) }
+    }
+    setShowNewSlot(false)
+    setNewSlot({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'', repeat_type:'none', repeat_until:'' })
+    reload()
+    if (total > 1) alert(`✅ ${total} VT slots aangemaakt over ${dates.length} dag${dates.length !== 1 ? 'en' : ''}!`)
   }
 
   // ── Admin: PT slot aanmaken ───────────────────────────────────────────────
   const createPtSlot = async () => {
     if (!newPtSlot.date_time) return alert('Vul datum en tijd in.')
-    try {
-      await api.post('/pt/slots', newPtSlot)
-      setShowNewPtSlot(false)
-      setNewPtSlot({ date_time:'', duration_minutes:60, trainer:'Mohammed', notes:'' })
-      reload()
-    } catch (e) { alert(e.response?.data?.error || 'Fout') }
+    const [baseDate, time] = newPtSlot.date_time.split('T')
+    const dates = getDatesForRepeat(baseDate, newPtSlot.repeat_type, newPtSlot.repeat_until)
+    let count = 0
+    for (const date of dates) {
+      try {
+        await api.post('/pt/slots', { ...newPtSlot, date_time: `${date}T${time}` })
+        count++
+      } catch (e) { console.error('PT slot fout voor', date, e.response?.data?.error) }
+    }
+    setShowNewPtSlot(false)
+    setNewPtSlot({ date_time:'', duration_minutes:60, trainer:'Mohammed', notes:'', repeat_type:'none', repeat_until:'' })
+    reload()
+    if (count > 1) alert(`✅ ${count} PT slots aangemaakt!`)
   }
 
   // ── Admin: les aanmaken ───────────────────────────────────────────────────
@@ -896,7 +923,35 @@ export default function AgendaPage() {
                 <input className="input" placeholder="Optioneel…" value={newPtSlot.notes}
                   onChange={e => setNewPtSlot({...newPtSlot,notes:e.target.value})}/>
               </div>
+              {/* Herhaling */}
+              <div>
+                <label className="input-label">Herhaling</label>
+                <select className="input" value={newPtSlot.repeat_type} onChange={e => setNewPtSlot({...newPtSlot,repeat_type:e.target.value,repeat_until:''})}>
+                  <option value="none">Eenmalig</option>
+                  <option value="daily">Dagelijks</option>
+                  <option value="weekly">Wekelijks</option>
+                  <option value="monthly">Maandelijks</option>
+                </select>
+              </div>
+              {newPtSlot.repeat_type !== 'none' && (
+                <div>
+                  <label className="input-label">Herhaal t/m</label>
+                  <input className="input" type="date"
+                    min={newPtSlot.date_time ? newPtSlot.date_time.substring(0,10) : today}
+                    value={newPtSlot.repeat_until}
+                    onChange={e => setNewPtSlot({...newPtSlot,repeat_until:e.target.value})}/>
+                </div>
+              )}
             </div>
+            {newPtSlot.date_time && newPtSlot.repeat_type !== 'none' && newPtSlot.repeat_until && (() => {
+              const baseDate = newPtSlot.date_time.substring(0,10)
+              const repeatDates = getDatesForRepeat(baseDate, newPtSlot.repeat_type, newPtSlot.repeat_until)
+              return (
+                <div style={{ marginTop:'0.6rem', padding:'0.5rem 0.75rem', background:'rgba(59,130,246,0.1)', borderRadius:'var(--r)', fontSize:'0.82rem', color:'#3b82f6', fontWeight:600 }}>
+                  ✓ {repeatDates.length} PT slot{repeatDates.length !== 1 ? 's' : ''} worden aangemaakt
+                </div>
+              )
+            })()}
             <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
               <button className="btn btn-sm" style={{ background:'#3b82f6',color:'#fff' }} onClick={createPtSlot}><Check size={13}/> Aanmaken</button>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowNewPtSlot(false)}><X size={13}/> Annuleren</button>
@@ -912,7 +967,7 @@ export default function AgendaPage() {
             </h3>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))', gap:'0.6rem' }}>
               <div>
-                <label className="input-label">Datum</label>
+                <label className="input-label">Startdatum</label>
                 <input className="input" type="date" min={today}
                   value={newSlot.date} onChange={e => setNewSlot({...newSlot,date:e.target.value})}/>
               </div>
@@ -933,24 +988,41 @@ export default function AgendaPage() {
                 <input className="input" type="number" min="1" max="50"
                   value={newSlot.max_bookings} onChange={e => setNewSlot({...newSlot,max_bookings:parseInt(e.target.value)})}/>
               </div>
+              {/* Herhaling */}
+              <div>
+                <label className="input-label">Herhaling</label>
+                <select className="input" value={newSlot.repeat_type} onChange={e => setNewSlot({...newSlot,repeat_type:e.target.value,repeat_until:''})}>
+                  <option value="none">Eenmalig</option>
+                  <option value="daily">Dagelijks</option>
+                  <option value="weekly">Wekelijks</option>
+                  <option value="monthly">Maandelijks</option>
+                </select>
+              </div>
+              {newSlot.repeat_type !== 'none' && (
+                <div>
+                  <label className="input-label">Herhaal t/m</label>
+                  <input className="input" type="date" min={newSlot.date || today}
+                    value={newSlot.repeat_until} onChange={e => setNewSlot({...newSlot,repeat_until:e.target.value})}/>
+                </div>
+              )}
               <div style={{ gridColumn:'span 2' }}>
                 <label className="input-label">Notities</label>
                 <input className="input" placeholder="Optioneel…"
                   value={newSlot.notes} onChange={e => setNewSlot({...newSlot,notes:e.target.value})}/>
               </div>
             </div>
-            {vtSlotPreview > 0 && (
-              <div style={{
-                marginTop:'0.6rem', padding:'0.5rem 0.75rem',
-                background:'rgba(34,197,94,0.1)', borderRadius:'var(--r)',
-                fontSize:'0.82rem', color:'#22c55e', fontWeight:600,
-              }}>
-                {vtSlotPreview === 1
-                  ? '✓ 1 slot van 1 uur wordt aangemaakt'
-                  : `✓ ${vtSlotPreview} slots van 1 uur worden aangemaakt (${newSlot.start_time}–${newSlot.end_time})`
-                }
-              </div>
-            )}
+            {vtSlotPreview > 0 && (() => {
+              const repeatDates = getDatesForRepeat(newSlot.date, newSlot.repeat_type, newSlot.repeat_until)
+              const totalSlots = vtSlotPreview * repeatDates.length
+              return (
+                <div style={{ marginTop:'0.6rem', padding:'0.5rem 0.75rem', background:'rgba(34,197,94,0.1)', borderRadius:'var(--r)', fontSize:'0.82rem', color:'#22c55e', fontWeight:600 }}>
+                  {newSlot.repeat_type === 'none'
+                    ? (vtSlotPreview === 1 ? '✓ 1 slot van 1 uur wordt aangemaakt' : `✓ ${vtSlotPreview} slots van 1 uur worden aangemaakt`)
+                    : `✓ ${totalSlots} slots over ${repeatDates.length} dag${repeatDates.length !== 1 ? 'en' : ''} (${vtSlotPreview} slot${vtSlotPreview !== 1 ? 's' : ''}/dag)`
+                  }
+                </div>
+              )
+            })()}
             <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.75rem' }}>
               <button className="btn btn-sm" style={{ background:'#22c55e',color:'#000' }} onClick={createVtSlot}><Check size={13}/> Aanmaken</button>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowNewSlot(false)}><X size={13}/> Annuleren</button>

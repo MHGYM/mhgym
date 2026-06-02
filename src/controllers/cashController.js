@@ -95,6 +95,33 @@ const markQuarterlyPaid = async (req, res) => {
   res.json({ message: 'Kwartaalbetaling geregistreerd.', next_due: nextDueStr });
 };
 
+/** Schrijf cash kwartaallid uit (zet payment_type terug naar mollie) */
+const unregisterCashMember = async (req, res) => {
+  await db.execute({
+    sql: `UPDATE user_memberships SET payment_type = 'mollie', quarterly_amount = NULL, next_quarter_due = NULL, updated_at = datetime('now') WHERE user_id = ? AND payment_type = 'cash'`,
+    args: [req.params.user_id],
+  });
+  await db.execute({
+    sql: `UPDATE users SET is_cash_payer = 0, updated_at = datetime('now') WHERE id = ?`,
+    args: [req.params.user_id],
+  });
+  res.json({ message: 'Cash betaler uitgeschreven.' });
+};
+
+/** Pas kwartaalgegevens aan (bedrag + volgende vervaldatum) */
+const updateCashMemberDetails = async (req, res) => {
+  const { quarterly_amount, next_quarter_due } = req.body;
+  await db.execute({
+    sql: `UPDATE user_memberships SET
+            quarterly_amount  = COALESCE(?, quarterly_amount),
+            next_quarter_due  = COALESCE(?, next_quarter_due),
+            updated_at        = datetime('now')
+          WHERE user_id = ? AND payment_type = 'cash'`,
+    args: [quarterly_amount != null ? Number(quarterly_amount) : null, next_quarter_due || null, req.params.user_id],
+  });
+  res.json({ message: 'Cash lid bijgewerkt.' });
+};
+
 /** Registreer een cash kwartaalbetaling voor een lid (ook als ze nog geen cash membership hebben) */
 const registerCashPayment = async (req, res) => {
   const { user_id, amount, payment_date, next_quarter_due, note } = req.body;
@@ -201,6 +228,20 @@ const listFondsMembers = async (req, res) => {
   sql += ' ORDER BY fm.end_date ASC';
   const result = await db.execute({ sql, args });
   res.json({ members: result.rows });
+};
+
+/** Verwijder fonds lidmaatschap (zet status op cancelled) */
+const deleteFondsMembership = async (req, res) => {
+  await db.execute({
+    sql: `UPDATE fonds_members SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`,
+    args: [req.params.id],
+  });
+  // Reset payment_type op gekoppeld lidmaatschap
+  await db.execute({
+    sql: `UPDATE user_memberships SET payment_type = 'mollie', fonds_member_id = NULL, updated_at = datetime('now') WHERE fonds_member_id = ?`,
+    args: [req.params.id],
+  });
+  res.json({ message: 'Fonds lidmaatschap verwijderd.' });
 };
 
 /** Update fonds lidmaatschap (verlengen, aanpassen, status wijzigen) */
@@ -594,8 +635,9 @@ const getIncomeBreakdown = async (req, res) => {
 };
 
 module.exports = {
-  logCashPayment, getCashPayments, markQuarterlyPaid, registerCashPayment, getCashMembers,
-  createFondsMembership, listFondsMembers, updateFondsMembership,
+  logCashPayment, getCashPayments, markQuarterlyPaid, registerCashPayment,
+  unregisterCashMember, updateCashMemberDetails, getCashMembers,
+  createFondsMembership, listFondsMembers, updateFondsMembership, deleteFondsMembership,
   processFondsReminders, processQuarterlyReminders, processCashOverdueReminders,
   runFondsReminders, runQuarterlyReminders,
   getIncomeBreakdown, getCashPtOverview,

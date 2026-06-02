@@ -282,21 +282,14 @@ const requestSlot = async (req, res) => {
   }
 
   await db.execute({
-    sql: `INSERT INTO vrij_trainen_bookings (user_id, slot_id, date, start_time, end_time, notes, status) VALUES (?, ?, ?, ?, ?, ?, 'requested')`,
+    sql: `INSERT INTO vrij_trainen_bookings (user_id, slot_id, date, start_time, end_time, notes, status) VALUES (?, ?, ?, ?, ?, ?, 'confirmed')`,
     args: [userId, req.params.id, slot.date, slot.start_time, slot.end_time, notes || null],
   });
 
-  // Push naar alle admins
-  const admins = await db.execute({ sql: `SELECT id FROM users WHERE role = 'admin'`, args: [] });
-  for (const admin of admins.rows) {
-    await sendPush(
-      admin.id,
-      '📋 Nieuwe VT aanvraag',
-      `${req.user.first_name} ${req.user.last_name} heeft een Vrij Trainen aanvraag voor ${slot.date} ${slot.start_time}.`
-    ).catch(() => {});
-  }
+  // Bevestiging direct naar het lid
+  await sendPush(userId, '✅ Vrij Trainen geboekt!', `Je sessie op ${slot.date} ${slot.start_time}–${slot.end_time} is bevestigd.`).catch(() => {});
 
-  res.status(201).json({ message: 'Aanvraag ingediend! De admin bevestigt zo snel mogelijk.' });
+  res.status(201).json({ message: 'Je bent direct geboekt! Tot snel bij MHGym.' });
 };
 
 /**
