@@ -354,7 +354,7 @@ export default function AgendaPage() {
 
   // Admin: VT slot form
   const [showNewSlot, setShowNewSlot] = useState(false)
-  const [newSlot,     setNewSlot]     = useState({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'', repeat_type:'none', repeat_until:'' })
+  const [newSlot,     setNewSlot]     = useState({ date: new Date().toISOString().split('T')[0], start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'', repeat_type:'none', repeat_until:'' })
 
   // Admin: PT slot form
   const [showNewPtSlot, setShowNewPtSlot] = useState(false)
@@ -564,7 +564,7 @@ export default function AgendaPage() {
       } catch (e) { console.error('VT slot fout voor', date, e.response?.data?.error) }
     }
     setShowNewSlot(false)
-    setNewSlot({ date:'', start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'', repeat_type:'none', repeat_until:'' })
+    setNewSlot({ date: new Date().toISOString().split('T')[0], start_time:'09:00', end_time:'22:00', max_bookings:10, notes:'', repeat_type:'none', repeat_until:'' })
     reload()
     if (total > 1) alert(`✅ ${total} VT slots aangemaakt over ${dates.length} dag${dates.length !== 1 ? 'en' : ''}!`)
   }

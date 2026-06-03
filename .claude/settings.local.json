@@ -99,7 +99,19 @@
       "Bash(curl -s http://localhost:4000/api/products/homepage-settings)",
       "Bash(curl -s http://localhost:4000/api/products/categories)",
       "Bash(git -C \"C:\\\\Projecten\\\\MHGym\" status)",
-      "Bash(git -C \"C:\\\\Projecten\\\\fashion web\\\\summerfits\" status)"
+      "Bash(git -C \"C:\\\\Projecten\\\\fashion web\\\\summerfits\" status)",
+      "Bash(node -e \"require\\('node-cron'\\); console.log\\('ok'\\)\")",
+      "Bash(node -e \"require\\('./src/controllers/cashController'\\); console.log\\('cashController OK'\\)\")",
+      "Bash(node -e \"require\\('node-cron'\\); require\\('./src/controllers/cashController'\\); console.log\\('server deps OK'\\)\")",
+      "Bash(node -e \"require\\('./src/routes/cash'\\); console.log\\('routes OK'\\)\")",
+      "Bash(node -e \"require\\('./src/controllers/adminController'\\); console.log\\('adminController OK'\\)\")",
+      "Bash(node -e \"require\\('./src/routes/cash'\\); require\\('./src/controllers/vrijTrainenController'\\); console.log\\('OK'\\)\")",
+      "Bash(npx vite *)",
+      "Bash(node -e \"require\\('C:/Projecten/MHGym/src/controllers/cashController.js'\\)\")",
+      "Bash(node -e \"require\\('C:/Projecten/MHGym/src/controllers/vrijTrainenController.js'\\)\")",
+      "Bash(node -e \"require\\('C:/Projecten/MHGym/src/controllers/adminController.js'\\)\")",
+      "Bash(xargs grep -l \"Vrij Trainen\\\\|tijdblok\\\\|VT\")",
+      "Bash(xargs grep -lE \"Vrij Trainen|tijdblok|VT\")"
     ]
   }
 }
