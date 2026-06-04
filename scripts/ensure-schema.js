@@ -392,6 +392,7 @@ async function ensureSchema() {
     `ALTER TABLE users ADD COLUMN admin_notes TEXT`,
     `ALTER TABLE users ADD COLUMN membership_paused INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE users ADD COLUMN membership_paused_reason TEXT`,
+    `ALTER TABLE users ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'sepa'`,
     // memberships
     `ALTER TABLE memberships ADD COLUMN minimum_months INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE memberships ADD COLUMN notice_period_months INTEGER NOT NULL DEFAULT 1`,

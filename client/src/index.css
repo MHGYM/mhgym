@@ -1190,4 +1190,6 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 .badge-warning { font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; background: var(--warning-dim); color: var(--warning); }
 .badge-error   { font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; background: var(--error-dim);   color: var(--error);   }
 .badge-neutral { font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; background: var(--surface-3);   color: var(--text-muted); }
+.badge-info    { font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; background: var(--info-dim);     color: var(--info);    }
+.badge-success { font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; background: var(--success-dim); color: var(--success); }
 

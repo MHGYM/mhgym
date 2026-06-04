@@ -41,7 +41,7 @@ const MEMBERSHIP_TYPES = [
 function AddMemberModal({ onClose, onCreated }) {
   const [memberships,  setMemberships]  = useState([])
   const [form, setForm] = useState({
-    first_name: '', last_name: '', email: '', phone: '', iban: '', membership_id: ''
+    first_name: '', last_name: '', email: '', phone: '', iban: '', membership_id: '', payment_method: 'sepa'
   })
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState('')
@@ -67,9 +67,9 @@ function AddMemberModal({ onClose, onCreated }) {
       setError('Vul alle verplichte velden in.')
       return
     }
-    // IBAN check alleen als ingevuld
+    // IBAN check alleen als SEPA en ingevuld
     let ibanClean = ''
-    if (form.iban) {
+    if (form.payment_method === 'sepa' && form.iban) {
       ibanClean = form.iban.replace(/\s/g, '').toUpperCase()
       if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{4,30}$/.test(ibanClean)) {
         setError('Ongeldig IBAN formaat.')
@@ -79,7 +79,8 @@ function AddMemberModal({ onClose, onCreated }) {
     setLoading(true)
     try {
       const r = await api.post('/admin/members/create-sepa', {
-        ...form, iban: ibanClean || undefined,
+        ...form,
+        iban: form.payment_method === 'sepa' ? (ibanClean || undefined) : undefined,
         membership_id: parseInt(form.membership_id),
       })
       setSuccess(r.data.message)
@@ -97,7 +98,9 @@ function AddMemberModal({ onClose, onCreated }) {
     }}>
       <div className="card" style={{width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto'}}>
         <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem'}}>
-          <h2 style={{margin:0, fontSize:'1.1rem'}}>Nieuw lid via SEPA incasso</h2>
+          <h2 style={{margin:0, fontSize:'1.1rem'}}>
+            {form.payment_method === 'sepa' ? 'Nieuw lid via SEPA incasso' : 'Nieuw lid aanmaken'}
+          </h2>
           <button className="btn-icon" onClick={onClose}><X size={18}/></button>
         </div>
 
@@ -132,18 +135,29 @@ function AddMemberModal({ onClose, onCreated }) {
               <input className="input" type="tel" value={form.phone} onChange={set('phone')} placeholder="+31 6 12345678"/>
             </div>
             <div>
-              <label className="input-label">IBAN <span style={{fontWeight:400,color:'var(--text-muted)'}}>— optioneel</span></label>
-              <input
-                className="input"
-                value={form.iban}
-                onChange={set('iban')}
-                placeholder="NL91 ABNA 0417 1643 00"
-                style={{fontFamily:'monospace', letterSpacing:'0.05em'}}
-              />
-              <p style={{fontSize:'0.75rem', color:'var(--text-muted)', marginTop:3}}>
-                Optioneel — voor SEPA incasso later in te vullen
-              </p>
+              <label className="input-label">Betalingswijze *</label>
+              <select className="input" value={form.payment_method} onChange={set('payment_method')}>
+                <option value="sepa">SEPA Incasso</option>
+                <option value="jeugdfonds">Jeugdfonds Sport</option>
+                <option value="volwassenenfonds">Volwassenenfonds</option>
+                <option value="cash">Cash</option>
+              </select>
             </div>
+            {form.payment_method === 'sepa' && (
+              <div>
+                <label className="input-label">IBAN <span style={{fontWeight:400,color:'var(--text-muted)'}}>— optioneel</span></label>
+                <input
+                  className="input"
+                  value={form.iban}
+                  onChange={set('iban')}
+                  placeholder="NL91 ABNA 0417 1643 00"
+                  style={{fontFamily:'monospace', letterSpacing:'0.05em'}}
+                />
+                <p style={{fontSize:'0.75rem', color:'var(--text-muted)', marginTop:3}}>
+                  Optioneel — voor SEPA incasso later in te vullen
+                </p>
+              </div>
+            )}
             <div>
               <label className="input-label">Abonnement *</label>
               <select className="input" value={form.membership_id} onChange={set('membership_id')}>
@@ -157,10 +171,27 @@ function AddMemberModal({ onClose, onCreated }) {
 
             <div style={{background:'var(--surface-2)', borderRadius:'var(--r)', padding:'0.75rem', fontSize:'0.8rem', color:'var(--text-muted)', lineHeight:1.6}}>
               <strong style={{color:'var(--text-2)'}}>Wat er gebeurt:</strong><br/>
-              1. Account aangemaakt met tijdelijk wachtwoord<br/>
-              2. Mollie klant + SEPA mandate aangemaakt<br/>
-              3. Recurring subscription gestart (volgende maand)<br/>
-              4. Welkomstmail verstuurd naar het lid
+              {form.payment_method === 'sepa' && <>
+                1. Account aangemaakt met tijdelijk wachtwoord<br/>
+                2. Mollie klant + SEPA mandate aangemaakt<br/>
+                3. Recurring subscription gestart (volgende maand)<br/>
+                4. Welkomstmail verstuurd naar het lid
+              </>}
+              {form.payment_method === 'jeugdfonds' && <>
+                1. Account aangemaakt met tijdelijk wachtwoord<br/>
+                2. Lidmaatschap geactiveerd (Jeugdfonds Sport)<br/>
+                3. Welkomstmail verstuurd — geen automatische incasso
+              </>}
+              {form.payment_method === 'volwassenenfonds' && <>
+                1. Account aangemaakt met tijdelijk wachtwoord<br/>
+                2. Lidmaatschap geactiveerd (Volwassenenfonds)<br/>
+                3. Welkomstmail verstuurd — geen automatische incasso
+              </>}
+              {form.payment_method === 'cash' && <>
+                1. Account aangemaakt met tijdelijk wachtwoord<br/>
+                2. Lidmaatschap geactiveerd (cash betaler)<br/>
+                3. Welkomstmail verstuurd — betaling loopt via de balie
+              </>}
             </div>
 
             {error && <p style={{color:'var(--error)', fontSize:'0.85rem', margin:0}}>{error}</p>}
@@ -361,7 +392,11 @@ function LedenSection() {
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:600,fontSize:'0.875rem',display:'flex',alignItems:'center',gap:4,flexWrap:'wrap'}}>
                   {m.first_name} {m.last_name}
-                  {m.is_cash_payer ? <span className="badge-warning">Cash</span> : null}
+                  {m.payment_method === 'sepa'             && <span className="badge-info">SEPA</span>}
+                  {m.payment_method === 'jeugdfonds'       && <span className="badge-success">Jeugdfonds</span>}
+                  {m.payment_method === 'volwassenenfonds' && <span className="badge-success">V.fonds</span>}
+                  {m.payment_method === 'cash'             && <span className="badge-warning">Cash</span>}
+                  {m.is_cash_payer && !m.payment_method    ? <span className="badge-warning">Cash</span> : null}
                   {m.membership_paused ? <span className="badge-error">Gepauzeerd</span> : null}
                   {m.fonds_days_remaining != null && m.fonds_days_remaining <= 30 && (
                     m.fonds_days_remaining <= 0

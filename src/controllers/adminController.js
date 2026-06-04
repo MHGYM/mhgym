@@ -36,7 +36,7 @@ const listMembers = async (req, res) => {
   let sql = `
     SELECT
       u.id, u.email, u.first_name, u.last_name, u.phone, u.role,
-      u.is_cash_payer, u.admin_notes, u.membership_paused, u.created_at,
+      u.is_cash_payer, u.admin_notes, u.membership_paused, u.payment_method, u.created_at,
       um.id AS user_membership_id, um.status AS membership_status,
       um.start_date, um.end_date, um.is_cash, um.cash_paid, um.admin_price, um.membership_type_key,
       m.name AS membership_name, m.category AS membership_category, m.price_monthly,
@@ -285,7 +285,7 @@ const addPtLessons = async (req, res) => {
  * - Stuurt welkomstmail met tijdelijk wachtwoord
  */
 const createMemberWithSepa = async (req, res) => {
-  const { first_name, last_name, email, phone, iban, membership_id } = req.body;
+  const { first_name, last_name, email, phone, iban, membership_id, payment_method = 'sepa' } = req.body;
 
   if (!first_name || !last_name || !email || !membership_id) {
     return res.status(400).json({ error: 'Voornaam, achternaam, e-mail en abonnement zijn verplicht.' });
@@ -308,71 +308,75 @@ const createMemberWithSepa = async (req, res) => {
 
   // Gebruiker aanmaken
   const userRes = await db.execute({
-    sql: `INSERT INTO users (email, password_hash, first_name, last_name, phone, role, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, 'member', datetime('now'), datetime('now'))`,
-    args: [email.toLowerCase().trim(), passwordHash, first_name.trim(), last_name.trim(), phone?.trim() || null],
+    sql: `INSERT INTO users (email, password_hash, first_name, last_name, phone, role, payment_method, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'member', ?, datetime('now'), datetime('now'))`,
+    args: [email.toLowerCase().trim(), passwordHash, first_name.trim(), last_name.trim(), phone?.trim() || null, payment_method],
   });
   const userId = Number(userRes.lastInsertRowid);
 
-  // Mollie klant aanmaken
+  // Mollie klant aanmaken — alleen voor SEPA incasso
   let mollieCustomerId = null;
   let subscriptionId   = null;
 
-  try {
-    const { createMollieClient } = require('@mollie/api-client');
-    if (process.env.MOLLIE_API_KEY && process.env.MOLLIE_API_KEY !== 'test_dummy') {
-      const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
+  if (payment_method === 'sepa') {
+    try {
+      const { createMollieClient } = require('@mollie/api-client');
+      if (process.env.MOLLIE_API_KEY && process.env.MOLLIE_API_KEY !== 'test_dummy') {
+        const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
 
-      // Klant aanmaken
-      const customer = await mollie.customers.create({
-        name:   `${first_name.trim()} ${last_name.trim()}`,
-        email:  email.toLowerCase().trim(),
-        locale: 'nl_NL',
-      });
-      mollieCustomerId = customer.id;
-
-      // Sla customer ID op bij user
-      await db.execute({ sql: `UPDATE users SET mollie_customer_id = ? WHERE id = ?`, args: [mollieCustomerId, userId] });
-
-      // SEPA mandate aanmaken via Mollie (alleen als IBAN opgegeven)
-      if (iban) {
-        await mollie.customerMandates.create(mollieCustomerId, {
-          method:          'directdebit',
-          consumerName:    `${first_name.trim()} ${last_name.trim()}`,
-          consumerAccount: iban.replace(/\s/g, '').toUpperCase(),
+        // Klant aanmaken
+        const customer = await mollie.customers.create({
+          name:   `${first_name.trim()} ${last_name.trim()}`,
+          email:  email.toLowerCase().trim(),
+          locale: 'nl_NL',
         });
-      }
+        mollieCustomerId = customer.id;
 
-      // Recurring subscription alleen aanmaken als IBAN (mandate) aanwezig is
-      if (iban) {
-        const nextMonth = new Date();
-        nextMonth.setMonth(nextMonth.getMonth() + 1);
-        const startDate = nextMonth.toISOString().split('T')[0];
+        // Sla customer ID op bij user
+        await db.execute({ sql: `UPDATE users SET mollie_customer_id = ? WHERE id = ?`, args: [mollieCustomerId, userId] });
 
-        const subscription = await mollie.subscriptions.create({
-          customerId:  mollieCustomerId,
-          amount:      { currency: 'EUR', value: Number(membership.price_monthly).toFixed(2) },
-          interval:    '1 month',
-          startDate,
-          description: `MHGym ${membership.name} (${membership.category}) — maandelijks`,
-          webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
-          metadata: {
-            type:          'subscription_payment',
-            user_id:       String(userId),
-            membership_id: String(membership_id),
-          },
-        });
-        subscriptionId = subscription.id;
-        console.log(`[Admin] Mollie subscription aangemaakt: ${subscriptionId} voor nieuwe user ${userId}`);
+        // SEPA mandate aanmaken via Mollie (alleen als IBAN opgegeven)
+        if (iban) {
+          await mollie.customerMandates.create(mollieCustomerId, {
+            method:          'directdebit',
+            consumerName:    `${first_name.trim()} ${last_name.trim()}`,
+            consumerAccount: iban.replace(/\s/g, '').toUpperCase(),
+          });
+        }
+
+        // Recurring subscription alleen aanmaken als IBAN (mandate) aanwezig is
+        if (iban) {
+          const nextMonth = new Date();
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+          const startDate = nextMonth.toISOString().split('T')[0];
+
+          const subscription = await mollie.subscriptions.create({
+            customerId:  mollieCustomerId,
+            amount:      { currency: 'EUR', value: Number(membership.price_monthly).toFixed(2) },
+            interval:    '1 month',
+            startDate,
+            description: `MHGym ${membership.name} (${membership.category}) — maandelijks`,
+            webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
+            metadata: {
+              type:          'subscription_payment',
+              user_id:       String(userId),
+              membership_id: String(membership_id),
+            },
+          });
+          subscriptionId = subscription.id;
+          console.log(`[Admin] Mollie subscription aangemaakt: ${subscriptionId} voor nieuwe user ${userId}`);
+        } else {
+          console.log(`[Admin] Geen IBAN — subscription overgeslagen voor user ${userId}`);
+        }
       } else {
-        console.log(`[Admin] Geen IBAN — subscription overgeslagen voor user ${userId}`);
+        console.warn('[Admin] Geen Mollie API key — SEPA mandate overgeslagen voor user', userId);
       }
-    } else {
-      console.warn('[Admin] Geen Mollie API key — SEPA mandate overgeslagen voor user', userId);
+    } catch (mollieErr) {
+      console.error('[Admin] Mollie fout bij aanmaken mandate/subscription:', mollieErr.message);
+      // We gaan door — lidmaatschap wordt alsnog geactiveerd, admin kan later corrigeren
     }
-  } catch (mollieErr) {
-    console.error('[Admin] Mollie fout bij aanmaken mandate/subscription:', mollieErr.message);
-    // We gaan door — lidmaatschap wordt alsnog geactiveerd, admin kan later corrigeren
+  } else {
+    console.log(`[Admin] Betalingswijze '${payment_method}' — Mollie overgeslagen voor user ${userId}`);
   }
 
   // Lidmaatschap activeren
@@ -398,9 +402,15 @@ const createMemberWithSepa = async (req, res) => {
 
   // Welkomstmail sturen
   const loginUrl = `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
-  const memberNote = iban
-    ? 'Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch het abonnementsbedrag afgeschreven.'
-    : 'Via de app kun je het lesrooster bekijken, lessen reserveren en je boekingen beheren. Je betaalt contant aan de balie.';
+  const memberNoteByMethod = {
+    sepa:             iban
+      ? 'Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch het abonnementsbedrag afgeschreven.'
+      : 'Je bent ingesteld voor SEPA incasso. Je IBAN wordt later door de admin toegevoegd.',
+    jeugdfonds:       'Je lidmaatschap wordt vergoed via het Jeugdfonds Sport & Cultuur. De gym regelt de administratie voor je.',
+    volwassenenfonds: 'Je lidmaatschap wordt vergoed via het Volwassenenfonds. De gym regelt de administratie voor je.',
+    cash:             'Je betaalt je abonnement contant aan de balie. Via de app kun je het lesrooster bekijken en lessen reserveren.',
+  };
+  const memberNote = memberNoteByMethod[payment_method] || memberNoteByMethod.sepa;
   sendAdminWelcomeEmail({
     to: email.toLowerCase().trim(),
     firstName: first_name.trim(),
