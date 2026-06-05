@@ -140,6 +140,8 @@ function AddMemberModal({ onClose, onCreated }) {
                 <option value="sepa">SEPA Incasso</option>
                 <option value="jeugdfonds">Jeugdfonds Sport</option>
                 <option value="volwassenenfonds">Volwassenenfonds</option>
+                <option value="pgb">PGB</option>
+                <option value="zin">Zorg in Natura (ZIN)</option>
                 <option value="cash">Cash</option>
               </select>
             </div>
@@ -186,6 +188,16 @@ function AddMemberModal({ onClose, onCreated }) {
                 1. Account aangemaakt met tijdelijk wachtwoord<br/>
                 2. Lidmaatschap geactiveerd (Volwassenenfonds)<br/>
                 3. Welkomstmail verstuurd — geen automatische incasso
+              </>}
+              {form.payment_method === 'pgb' && <>
+                1. Account aangemaakt met tijdelijk wachtwoord<br/>
+                2. Lidmaatschap geactiveerd (PGB)<br/>
+                3. Welkomstmail verstuurd — declaratie verloopt via PGB
+              </>}
+              {form.payment_method === 'zin' && <>
+                1. Account aangemaakt met tijdelijk wachtwoord<br/>
+                2. Lidmaatschap geactiveerd (Zorg in Natura)<br/>
+                3. Welkomstmail verstuurd — declaratie verloopt via ZIN
               </>}
               {form.payment_method === 'cash' && <>
                 1. Account aangemaakt met tijdelijk wachtwoord<br/>
@@ -395,6 +407,8 @@ function LedenSection() {
                   {m.payment_method === 'sepa'             && <span className="badge-info">SEPA</span>}
                   {m.payment_method === 'jeugdfonds'       && <span className="badge-success">Jeugdfonds</span>}
                   {m.payment_method === 'volwassenenfonds' && <span className="badge-success">V.fonds</span>}
+                  {m.payment_method === 'pgb'              && <span className="badge-success">PGB</span>}
+                  {m.payment_method === 'zin'              && <span className="badge-success">ZIN</span>}
                   {m.payment_method === 'cash'             && <span className="badge-warning">Cash</span>}
                   {m.is_cash_payer && !m.payment_method    ? <span className="badge-warning">Cash</span> : null}
                   {m.membership_paused ? <span className="badge-error">Gepauzeerd</span> : null}

@@ -308,7 +308,7 @@ const createMemberWithSepa = async (req, res) => {
 
   // Gebruiker aanmaken
   const userRes = await db.execute({
-    sql: `INSERT INTO users (email, password_hash, first_name, last_name, phone, role, payment_method, created_at, updated_at)
+    sql: `INSERT INTO users (email, password, first_name, last_name, phone, role, payment_method, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'member', ?, datetime('now'), datetime('now'))`,
     args: [email.toLowerCase().trim(), passwordHash, first_name.trim(), last_name.trim(), phone?.trim() || null, payment_method],
   });
@@ -408,6 +408,8 @@ const createMemberWithSepa = async (req, res) => {
       : 'Je bent ingesteld voor SEPA incasso. Je IBAN wordt later door de admin toegevoegd.',
     jeugdfonds:       'Je lidmaatschap wordt vergoed via het Jeugdfonds Sport & Cultuur. De gym regelt de administratie voor je.',
     volwassenenfonds: 'Je lidmaatschap wordt vergoed via het Volwassenenfonds. De gym regelt de administratie voor je.',
+    pgb:              'Je lidmaatschap wordt gedeclareerd via je PGB. De gym regelt de administratie voor je.',
+    zin:              'Je lidmaatschap wordt vergoed via Zorg in Natura (ZIN). De gym regelt de declaratie voor je.',
     cash:             'Je betaalt je abonnement contant aan de balie. Via de app kun je het lesrooster bekijken en lessen reserveren.',
   };
   const memberNote = memberNoteByMethod[payment_method] || memberNoteByMethod.sepa;
