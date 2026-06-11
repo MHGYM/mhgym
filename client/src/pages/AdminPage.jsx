@@ -4,7 +4,8 @@ import {
   Zap, AlertTriangle, Users2,
   Search, Plus, Check, X, Euro, Clock, Edit2, Trash2,
   Bell, PauseCircle, PlayCircle, Pin, Crown, Link, ChevronLeft, RefreshCw,
-  TrendingUp, Banknote, FileText, ChevronDown, ChevronUp
+  TrendingUp, Banknote, FileText, ChevronDown, ChevronUp,
+  MessageCircle, Send, ArrowLeft
 } from 'lucide-react'
 import api from '../api'
 
@@ -2247,6 +2248,229 @@ function BetalingenCombinedSection() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// BERICHTEN (admin ↔ leden)
+// ════════════════════════════════════════════════════════════════════
+function BerichtenSection() {
+  const [conversations, setConversations] = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [openId,        setOpenId]        = useState(null)
+  const [openMember,    setOpenMember]    = useState(null)
+  const [messages,      setMessages]      = useState([])
+  const [input,         setInput]         = useState('')
+  const [sending,       setSending]       = useState(false)
+  const pollRef  = useRef(null)
+  const bottomRef = useRef(null)
+
+  const loadList = async () => {
+    try {
+      const r = await api.get('/admin/messages')
+      setConversations(r.data.conversations || [])
+    } catch (_) {}
+    setLoading(false)
+  }
+
+  const loadConversation = async (memberId, silent = false) => {
+    try {
+      const r = await api.get(`/admin/messages/${memberId}`)
+      setMessages(r.data.messages || [])
+      if (!silent) {
+        setOpenMember(r.data.member)
+        // markeer als gelezen in de lijst
+        setConversations(prev => prev.map(c => c.member_id === memberId ? {...c, unread_count: 0} : c))
+      }
+    } catch (_) {}
+  }
+
+  useEffect(() => {
+    loadList()
+    pollRef.current = setInterval(loadList, 15_000)
+    return () => clearInterval(pollRef.current)
+  }, [])
+
+  // Poll open gesprek elke 10s
+  useEffect(() => {
+    if (!openId) return
+    const timer = setInterval(() => loadConversation(openId, true), 10_000)
+    return () => clearInterval(timer)
+  }, [openId])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const openConversation = async id => {
+    setOpenId(id)
+    setMessages([])
+    setInput('')
+    await loadConversation(id)
+  }
+
+  const sendMsg = async () => {
+    const text = input.trim()
+    if (!text || sending || !openId) return
+    setSending(true)
+    setInput('')
+    try {
+      await api.post(`/admin/messages/${openId}`, { body: text })
+      await loadConversation(openId, true)
+    } catch (_) { setInput(text) }
+    setSending(false)
+  }
+
+  const handleKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg() } }
+
+  const fmtTime = s => new Date(s).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+  const fmtAgo  = s => {
+    if (!s) return ''
+    const diff = Date.now() - new Date(s)
+    if (diff < 60000) return 'zojuist'
+    if (diff < 3600000) return `${Math.floor(diff/60000)}m`
+    if (diff < 86400000) return `${Math.floor(diff/3600000)}u`
+    return new Date(s).toLocaleDateString('nl-NL', { day:'numeric', month:'short' })
+  }
+
+  if (loading) return <p style={{ color:'var(--text-muted)' }}>Laden…</p>
+
+  // Gesprek open
+  if (openId && openMember) {
+    let lastDay = null
+    return (
+      <div style={{ display:'flex', flexDirection:'column', height:'calc(100dvh - 180px)' }}>
+        {/* Header */}
+        <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', paddingBottom:'0.75rem', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setOpenId(null); setOpenMember(null); loadList() }}>
+            <ArrowLeft size={14}/> Terug
+          </button>
+          <div>
+            <div style={{ fontWeight:700 }}>{openMember.first_name} {openMember.last_name}</div>
+            <div style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>{openMember.email}</div>
+          </div>
+        </div>
+
+        {/* Berichten */}
+        <div style={{ flex:1, overflowY:'auto', padding:'0.75rem 0', display:'flex', flexDirection:'column', gap:'0.4rem' }}>
+          {messages.length === 0 && (
+            <p style={{ color:'var(--text-muted)', textAlign:'center', marginTop:'2rem' }}>Nog geen berichten in dit gesprek.</p>
+          )}
+          {messages.map(msg => {
+            const day = new Date(msg.created_at).toLocaleDateString('nl-NL', { weekday:'long', day:'numeric', month:'long' })
+            const showDay = day !== lastDay
+            lastDay = day
+            const isAdmin = msg.sender === 'admin'
+            return (
+              <div key={msg.id}>
+                {showDay && (
+                  <div style={{ textAlign:'center', margin:'0.5rem 0', fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                    <hr style={{ flex:1, border:'none', borderTop:'1px solid var(--border)' }}/>{day}<hr style={{ flex:1, border:'none', borderTop:'1px solid var(--border)' }}/>
+                  </div>
+                )}
+                <div style={{ display:'flex', justifyContent: isAdmin ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth:'72%',
+                    background: isAdmin ? 'var(--accent)' : 'var(--surface-2)',
+                    color: isAdmin ? '#000' : 'var(--text)',
+                    borderRadius: isAdmin ? '16px 16px 4px 16px' : '4px 16px 16px 16px',
+                    padding:'0.55rem 0.8rem',
+                    fontSize:'0.875rem',
+                    lineHeight:1.5,
+                    wordBreak:'break-word',
+                  }}>
+                    {!isAdmin && (
+                      <div style={{ fontSize:'0.7rem', fontWeight:700, color:'var(--accent)', marginBottom:'0.2rem' }}>
+                        {openMember.first_name}
+                      </div>
+                    )}
+                    <div>{msg.body}</div>
+                    <div style={{ fontSize:'0.65rem', color: isAdmin ? 'rgba(0,0,0,0.45)' : 'var(--text-muted)', marginTop:'0.15rem', textAlign:'right' }}>
+                      {fmtTime(msg.created_at)}
+                      {isAdmin && msg.read_at && <span style={{ marginLeft:3 }}>✓✓</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          <div ref={bottomRef}/>
+        </div>
+
+        {/* Invoer */}
+        <div style={{ borderTop:'1px solid var(--border)', paddingTop:'0.6rem', flexShrink:0 }}>
+          <div style={{ display:'flex', gap:'0.5rem', alignItems:'flex-end' }}>
+            <textarea
+              className="input"
+              rows={2}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="Typ een bericht… (Enter om te verzenden)"
+              style={{ flex:1, resize:'none', fontSize:'0.875rem' }}
+              disabled={sending}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={sendMsg}
+              disabled={!input.trim() || sending}
+              style={{ flexShrink:0, height:52, width:44, padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}
+            >
+              {sending ? <span className="spinner spinner-sm" style={{ borderColor:'rgba(0,0,0,0.3)', borderTopColor:'#000' }}/> : <Send size={16}/>}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Gesprekkenlijst
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem' }}>
+        <h2 style={{ margin:0 }}>Berichten</h2>
+        <button className="btn btn-ghost btn-sm" onClick={loadList}><RefreshCw size={13}/></button>
+      </div>
+
+      {conversations.length === 0 && (
+        <div style={{ textAlign:'center', padding:'4rem', color:'var(--text-muted)' }}>
+          <MessageCircle size={40} style={{ opacity:0.2, marginBottom:'0.75rem' }}/>
+          <p>Geen gesprekken</p>
+        </div>
+      )}
+
+      {conversations.map(c => (
+        <div
+          key={c.member_id}
+          className="card"
+          style={{ marginBottom:'0.5rem', cursor:'pointer', borderColor: c.unread_count > 0 ? 'var(--accent)' : 'var(--border)' }}
+          onClick={() => openConversation(c.member_id)}
+        >
+          <div style={{ display:'flex', alignItems:'center', gap:'0.75rem' }}>
+            <div style={{ width:40, height:40, borderRadius:'50%', background:'var(--accent)', color:'#000', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.9rem', flexShrink:0 }}>
+              {(c.first_name?.[0]||'?')+(c.last_name?.[0]||'')}
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span style={{ fontWeight: c.unread_count > 0 ? 700 : 600, fontSize:'0.875rem' }}>
+                  {c.first_name} {c.last_name}
+                </span>
+                <span style={{ fontSize:'0.72rem', color:'var(--text-muted)' }}>{fmtAgo(c.last_at)}</span>
+              </div>
+              <div style={{ fontSize:'0.8rem', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:1 }}>
+                {c.last_sender === 'admin' ? <span style={{ color:'var(--text-muted)' }}>Jij: </span> : null}
+                {c.last_body || '—'}
+              </div>
+            </div>
+            {c.unread_count > 0 && (
+              <span style={{ minWidth:20, height:20, borderRadius:99, background:'var(--error,#ef4444)', color:'#fff', fontSize:'0.72rem', fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 4px', flexShrink:0 }}>
+                {c.unread_count}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
 // HOOFD COMPONENT
 // ════════════════════════════════════════════════════════════════════
 const MENU = [
@@ -2259,18 +2483,38 @@ const MENU = [
   { key:'betalingen', label:'Betalingen',    Icon:CreditCard      },
   { key:'community',  label:'Community',     Icon:Users2          },
   { key:'rooster',    label:'Rooster',       Icon:Calendar        },
+  { key:'berichten',  label:'Berichten',     Icon:MessageCircle   },
 ]
 
 export default function AdminPage() {
-  const [section, setSection] = useState('dashboard')
+  const [section, setSection]   = useState('dashboard')
+  const [msgUnread, setMsgUnread] = useState(0)
+
+  // Snelle ongelezen teller voor de sidebar
+  useEffect(() => {
+    const fetch = async () => {
+      try {
+        const r = await api.get('/admin/messages/unread-count')
+        setMsgUnread(r.data.unread || 0)
+      } catch (_) {}
+    }
+    fetch()
+    const t = setInterval(fetch, 30_000)
+    return () => clearInterval(t)
+  }, [])
 
   return (
     <div className="admin-page">
       <aside className="admin-sidebar">
         <div className="admin-sidebar-title">Admin</div>
         {MENU.map(({ key, label, Icon }) => (
-          <button key={key} className={`admin-menu-item${section===key?' active':''}`} onClick={() => setSection(key)}>
+          <button key={key} className={`admin-menu-item${section===key?' active':''}`} onClick={() => setSection(key)} style={{ position:'relative' }}>
             <Icon size={15}/> {label}
+            {key === 'berichten' && msgUnread > 0 && (
+              <span style={{ marginLeft:'auto', minWidth:18, height:18, borderRadius:99, background:'var(--error,#ef4444)', color:'#fff', fontSize:'0.65rem', fontWeight:800, display:'inline-flex', alignItems:'center', justifyContent:'center', padding:'0 4px' }}>
+                {msgUnread > 9 ? '9+' : msgUnread}
+              </span>
+            )}
           </button>
         ))}
       </aside>
@@ -2284,6 +2528,7 @@ export default function AdminPage() {
         {section==='betalingen' && <BetalingenCombinedSection/>}
         {section==='community'  && <CommunityBeheer/>}
         {section==='rooster'    && <RoosterSection/>}
+        {section==='berichten'  && <BerichtenSection/>}
       </main>
     </div>
   )

@@ -48,6 +48,7 @@ app.use('/api/vt',          require('./routes/vrijTrainen'));
 app.use('/api/community',   require('./routes/community'));
 app.use('/api/cash',        require('./routes/cash'));
 app.use('/api/chat',        require('./routes/chat'));
+app.use('/api/messages',    require('./routes/messages'));
 app.use('/api/setup',       require('./routes/setup'));
 
 // Health check

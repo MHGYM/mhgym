@@ -12,6 +12,7 @@ import AdminPage from './pages/AdminPage'
 import PersonalTrainingPage from './pages/PersonalTrainingPage'
 import AgendaPage from './pages/AgendaPage'
 import CommunityPage from './pages/CommunityPage'
+import MessagesPage from './pages/MessagesPage'
 import InstallPage from './pages/InstallPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import MayaChatWidget from './components/MayaChatWidget'
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/schedule"          element={<SchedulePage />} />
             <Route path="/agenda"            element={<AgendaPage />} />
             <Route path="/community"         element={<CommunityPage />} />
+            <Route path="/messages"          element={<MessagesPage />} />
             <Route path="/memberships"       element={<MembershipsPage />} />
             <Route path="/shop"              element={<ShopPage />} />
             <Route path="/personal-training" element={<PersonalTrainingPage />} />

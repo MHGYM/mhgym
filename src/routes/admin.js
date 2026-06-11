@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const ctrl = require('../controllers/adminController');
+const msgCtrl = require('../controllers/messagesController');
 
 router.use(authenticate, requireAdmin);
 
@@ -43,5 +44,11 @@ router.post('/payment-failures/:id/paylink',         ctrl.sendPayLink);
 router.post('/payment-failures/auto-remind',         ctrl.processAutoReminders);
 router.put('/payment-failures/:id/paid',             ctrl.markPaymentPaid);
 router.put('/payment-failures/:id/pause',            ctrl.pauseMembershipFromFailure);
+
+// ── Berichten (chat) ────────────────────────────────────────────────────────
+router.get('/messages/unread-count',     msgCtrl.adminUnreadCount);
+router.get('/messages',                  msgCtrl.adminListConversations);
+router.get('/messages/:memberId',        msgCtrl.adminGetConversation);
+router.post('/messages/:memberId',       msgCtrl.adminSendMessage);
 
 module.exports = router;

@@ -467,6 +467,19 @@ async function ensureSchema() {
     `);
   }
 
+  // ── Chat berichten (012) ──────────────────────────────────────────────────────
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sender     TEXT    NOT NULL CHECK(sender IN ('admin','member')),
+      body       TEXT    NOT NULL,
+      read_at    TEXT,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_messages_member ON messages(member_id, created_at)`);
+
   // ── Password reset tokens (011) ──────────────────────────────────────────────
   await db.execute(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
