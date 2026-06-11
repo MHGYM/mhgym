@@ -14,6 +14,7 @@ router.get('/members/:id',                ctrl.getMember);
 router.put('/members/:id/role',           ctrl.setMemberRole);
 router.put('/members/:id/notes',          ctrl.updateMemberNotes);
 router.put('/members/:id/pause',          ctrl.pauseMembership);
+router.put('/members/:id/custom-amount',  ctrl.updateCustomAmount);
 router.post('/members/:id/membership',    ctrl.assignMembership);
 router.put('/members/:id/memberships/:mid/paid', ctrl.markCashPaid);
 router.post('/members/:id/pt-lessons',    ctrl.addPtLessons);

@@ -39,6 +39,7 @@ const listMembers = async (req, res) => {
       u.is_cash_payer, u.admin_notes, u.membership_paused, u.payment_method, u.created_at,
       um.id AS user_membership_id, um.status AS membership_status,
       um.start_date, um.end_date, um.is_cash, um.cash_paid, um.admin_price, um.membership_type_key,
+      um.custom_amount, um.subscription_type,
       m.name AS membership_name, m.category AS membership_category, m.price_monthly,
       (SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id AND b.status = 'confirmed') AS total_bookings,
       (SELECT COUNT(*) FROM pt_bookings pb WHERE pb.user_id = u.id AND pb.status IN ('confirmed','completed')) AS total_pt,
@@ -285,10 +286,19 @@ const addPtLessons = async (req, res) => {
  * - Stuurt welkomstmail met tijdelijk wachtwoord
  */
 const createMemberWithSepa = async (req, res) => {
-  const { first_name, last_name, email, phone, iban, membership_id, payment_method = 'sepa' } = req.body;
+  const { first_name, last_name, email, phone, iban, membership_id, payment_method = 'sepa', custom_amount } = req.body;
 
   if (!first_name || !last_name || !email || !membership_id) {
     return res.status(400).json({ error: 'Voornaam, achternaam, e-mail en abonnement zijn verplicht.' });
+  }
+
+  // Valideer maatwerk bedrag indien opgegeven
+  let customAmountValue = null;
+  if (custom_amount !== undefined && custom_amount !== null && custom_amount !== '') {
+    customAmountValue = Number(custom_amount);
+    if (isNaN(customAmountValue) || customAmountValue <= 0) {
+      return res.status(400).json({ error: 'Ongeldig maatwerk bedrag. Vul een positief getal in (bijv. 25.00).' });
+    }
   }
 
   // Controleer of e-mail al bestaat
@@ -350,12 +360,19 @@ const createMemberWithSepa = async (req, res) => {
           nextMonth.setMonth(nextMonth.getMonth() + 1);
           const startDate = nextMonth.toISOString().split('T')[0];
 
+          // Gebruik maatwerk bedrag indien opgegeven, anders standaard abonnementsprijs
+          const subscriptionAmount = customAmountValue
+            ? customAmountValue.toFixed(2)
+            : Number(membership.price_monthly).toFixed(2);
+
+          const descriptionSuffix = customAmountValue ? ' (maatwerk)' : '';
+
           const subscription = await mollie.subscriptions.create({
             customerId:  mollieCustomerId,
-            amount:      { currency: 'EUR', value: Number(membership.price_monthly).toFixed(2) },
+            amount:      { currency: 'EUR', value: subscriptionAmount },
             interval:    '1 month',
             startDate,
-            description: `MHGym ${membership.name} (${membership.category}) — maandelijks`,
+            description: `MHGym ${membership.name} (${membership.category}) — maandelijks${descriptionSuffix}`,
             webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
             metadata: {
               type:          'subscription_payment',
@@ -387,8 +404,9 @@ const createMemberWithSepa = async (req, res) => {
   await db.execute({
     sql: `INSERT INTO user_memberships
             (user_id, membership_id, status, start_date, contract_start, contract_end,
-             minimum_months, notice_period_months, mollie_subscription_id, agreed_to_terms, payment_type)
-          VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, 1, 'mollie')`,
+             minimum_months, notice_period_months, mollie_subscription_id, agreed_to_terms, payment_type,
+             custom_amount, subscription_type)
+          VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, 1, 'mollie', ?, ?)`,
     args: [
       userId, membership_id,
       now.toISOString().split('T')[0],
@@ -397,14 +415,18 @@ const createMemberWithSepa = async (req, res) => {
       membership.minimum_months || 1,
       membership.notice_period_months || 1,
       subscriptionId,
+      customAmountValue,
+      customAmountValue ? 'custom' : 'standard',
     ],
   });
 
   // Welkomstmail sturen
   const loginUrl = `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/login`;
   const memberNoteByMethod = {
-    sepa:             iban
-      ? 'Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch het abonnementsbedrag afgeschreven.'
+    sepa: iban
+      ? (customAmountValue
+          ? `Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch €${customAmountValue.toFixed(2)} afgeschreven (maatwerkbedrag).`
+          : 'Je incassomachtiging (SEPA) is ingesteld. Elke maand wordt automatisch het abonnementsbedrag afgeschreven.')
       : 'Je bent ingesteld voor SEPA incasso. Je IBAN wordt later door de admin toegevoegd.',
     jeugdfonds:       'Je lidmaatschap wordt vergoed via het Jeugdfonds Sport & Cultuur. De gym regelt de administratie voor je.',
     volwassenenfonds: 'Je lidmaatschap wordt vergoed via het Volwassenenfonds. De gym regelt de administratie voor je.',
@@ -428,6 +450,99 @@ const createMemberWithSepa = async (req, res) => {
     user_id: userId,
     mollie_customer_id: mollieCustomerId,
     subscription_id: subscriptionId,
+  });
+};
+
+// ── PUT /api/admin/members/:id/custom-amount ──────────────────────────────────
+
+const updateCustomAmount = async (req, res) => {
+  const userId = req.params.id;
+  const { custom_amount } = req.body;
+
+  if (custom_amount === undefined || custom_amount === null || custom_amount === '') {
+    return res.status(400).json({ error: 'custom_amount is verplicht.' });
+  }
+  const newAmount = Number(custom_amount);
+  if (isNaN(newAmount) || newAmount <= 0) {
+    return res.status(400).json({ error: 'Ongeldig bedrag. Vul een positief getal in (bijv. 25.00).' });
+  }
+  const newAmountStr = newAmount.toFixed(2);
+
+  // Haal actief lidmaatschap op
+  const memRes = await db.execute({
+    sql: `SELECT um.*, m.name AS membership_name, m.category
+          FROM user_memberships um
+          LEFT JOIN memberships m ON m.id = um.membership_id
+          WHERE um.user_id = ? AND um.status IN ('active','cancelling')
+          ORDER BY um.created_at DESC LIMIT 1`,
+    args: [userId],
+  });
+  const um = memRes.rows[0];
+  if (!um) return res.status(404).json({ error: 'Geen actief lidmaatschap gevonden voor dit lid.' });
+
+  // Sla nieuw bedrag op
+  await db.execute({
+    sql: `UPDATE user_memberships
+          SET custom_amount = ?, subscription_type = 'custom', updated_at = datetime('now')
+          WHERE id = ?`,
+    args: [newAmount, um.id],
+  });
+
+  // Update Mollie subscription als aanwezig
+  if (um.mollie_subscription_id) {
+    try {
+      const { createMollieClient } = require('@mollie/api-client');
+      if (process.env.MOLLIE_API_KEY && process.env.MOLLIE_API_KEY !== 'test_dummy') {
+        const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
+
+        const userRes = await db.execute({ sql: 'SELECT mollie_customer_id FROM users WHERE id = ?', args: [userId] });
+        const user    = userRes.rows[0];
+
+        if (user?.mollie_customer_id) {
+          // Annuleer bestaande subscription
+          try {
+            await mollie.subscriptions.cancel(um.mollie_subscription_id, { customerId: user.mollie_customer_id });
+            console.log(`[Admin] Mollie subscription ${um.mollie_subscription_id} geannuleerd (bedrag wijziging)`);
+          } catch (cancelErr) {
+            console.warn('[Admin] Subscription annuleren mislukt (mogelijk al gestopt):', cancelErr.message);
+          }
+
+          // Maak nieuwe subscription aan met nieuw bedrag (start volgende maand)
+          const nextMonth = new Date();
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+          const startDate = nextMonth.toISOString().split('T')[0];
+
+          const newSub = await mollie.subscriptions.create({
+            customerId:  user.mollie_customer_id,
+            amount:      { currency: 'EUR', value: newAmountStr },
+            interval:    '1 month',
+            startDate,
+            description: `MHGym ${um.membership_name || ''} (${um.category || ''}) — maandelijks (maatwerk)`,
+            webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
+            metadata: {
+              type:          'subscription_payment',
+              user_id:       String(userId),
+              membership_id: String(um.membership_id),
+            },
+          });
+
+          await db.execute({
+            sql: `UPDATE user_memberships SET mollie_subscription_id = ? WHERE id = ?`,
+            args: [newSub.id, um.id],
+          });
+
+          console.log(`[Admin] Nieuwe Mollie subscription ${newSub.id} aangemaakt — €${newAmountStr}/mnd voor user ${userId}`);
+        }
+      }
+    } catch (mollieErr) {
+      console.error('[Admin] Mollie fout bij bijwerken subscription:', mollieErr.message);
+      // DB is al bijgewerkt — geef geen fout terug, admin kan handmatig corrigeren
+    }
+  }
+
+  res.json({
+    message:       `Maatwerk bedrag bijgewerkt naar €${newAmountStr}.`,
+    custom_amount: newAmount,
   });
 };
 
@@ -925,7 +1040,7 @@ const adminBookPt = async (req, res) => {
 module.exports = {
   MEMBERSHIP_TYPES,
   listMembers, getMember, setMemberRole, updateMemberNotes, pauseMembership,
-  assignMembership, markCashPaid, addPtLessons, deleteMember, createMemberWithSepa,
+  assignMembership, markCashPaid, addPtLessons, deleteMember, createMemberWithSepa, updateCustomAmount,
   adminListClasses, adminCreateClass, adminUpdateClass, adminCancelClass, adminGetClassBookings,
   adminListBookings,
   adminListPayments,

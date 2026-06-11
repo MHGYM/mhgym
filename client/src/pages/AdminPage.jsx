@@ -41,7 +41,8 @@ const MEMBERSHIP_TYPES = [
 function AddMemberModal({ onClose, onCreated }) {
   const [memberships,  setMemberships]  = useState([])
   const [form, setForm] = useState({
-    first_name: '', last_name: '', email: '', phone: '', iban: '', membership_id: '', payment_method: 'sepa'
+    first_name: '', last_name: '', email: '', phone: '', iban: '', membership_id: '', payment_method: 'sepa',
+    use_custom_amount: false, custom_amount: '',
   })
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState('')
@@ -76,12 +77,23 @@ function AddMemberModal({ onClose, onCreated }) {
         return
       }
     }
+    // Maatwerk bedrag validatie
+    if (form.payment_method === 'sepa' && form.use_custom_amount) {
+      const ca = parseFloat(form.custom_amount)
+      if (isNaN(ca) || ca <= 0) {
+        setError('Vul een geldig maatwerk bedrag in (bijv. 25.00).')
+        return
+      }
+    }
     setLoading(true)
     try {
       const r = await api.post('/admin/members/create-sepa', {
         ...form,
         iban: form.payment_method === 'sepa' ? (ibanClean || undefined) : undefined,
         membership_id: parseInt(form.membership_id),
+        custom_amount: (form.payment_method === 'sepa' && form.use_custom_amount && form.custom_amount)
+          ? parseFloat(form.custom_amount)
+          : undefined,
       })
       setSuccess(r.data.message)
       onCreated?.()
@@ -170,6 +182,41 @@ function AddMemberModal({ onClose, onCreated }) {
                 ))}
               </select>
             </div>
+
+            {/* Maatwerk bedrag — alleen bij SEPA */}
+            {form.payment_method === 'sepa' && (
+              <div>
+                <label style={{display:'flex', alignItems:'center', gap:7, fontSize:'0.875rem', cursor:'pointer', userSelect:'none'}}>
+                  <input
+                    type="checkbox"
+                    checked={form.use_custom_amount}
+                    onChange={e => setForm(f => ({...f, use_custom_amount: e.target.checked, custom_amount: ''}))}
+                  />
+                  <span style={{fontWeight:600}}>Maatwerk / eigen bedrag</span>
+                  <span style={{color:'var(--text-muted)', fontWeight:400}}>— afwijkend incassobedrag</span>
+                </label>
+                {form.use_custom_amount && (
+                  <div style={{marginTop:'0.5rem'}}>
+                    <div style={{position:'relative'}}>
+                      <span style={{position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none'}}>€</span>
+                      <input
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        value={form.custom_amount}
+                        onChange={set('custom_amount')}
+                        placeholder="25.00"
+                        style={{paddingLeft:'1.75rem'}}
+                      />
+                    </div>
+                    <p style={{fontSize:'0.75rem', color:'var(--text-muted)', marginTop:3}}>
+                      Dit bedrag vervangt de standaardprijs bij de Mollie incasso
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{background:'var(--surface-2)', borderRadius:'var(--r)', padding:'0.75rem', fontSize:'0.8rem', color:'var(--text-muted)', lineHeight:1.6}}>
               <strong style={{color:'var(--text-2)'}}>Wat er gebeurt:</strong><br/>
@@ -299,9 +346,11 @@ function LedenSection() {
   const [showPtAdd,     setShowPtAdd]     = useState(false)
   const [ptLessons,     setPtLessons]     = useState('')
   const [ptNotes,       setPtNotes]       = useState('')
-  const [editNotes,     setEditNotes]     = useState(false)
-  const [notes,         setNotes]         = useState('')
-  const [isCash,        setIsCash]        = useState(false)
+  const [editNotes,        setEditNotes]        = useState(false)
+  const [notes,            setNotes]            = useState('')
+  const [isCash,           setIsCash]           = useState(false)
+  const [editCustomAmount, setEditCustomAmount] = useState(false)
+  const [customAmountVal,  setCustomAmountVal]  = useState('')
   const timerRef = useRef(null)
 
   useEffect(() => { loadMembers() }, [])
@@ -371,6 +420,17 @@ function LedenSection() {
     await api.put(`/admin/members/${selected}/memberships/${mid}/paid`); openMember(selected)
   }
 
+  const doUpdateCustomAmount = async () => {
+    const val = parseFloat(customAmountVal)
+    if (isNaN(val) || val <= 0) { alert('Vul een geldig bedrag in.'); return }
+    try {
+      const r = await api.put(`/admin/members/${selected}/custom-amount`, { custom_amount: val })
+      alert(r.data.message)
+      setEditCustomAmount(false)
+      openMember(selected)
+    } catch(e) { alert(e.response?.data?.error || 'Fout bij opslaan.') }
+  }
+
   const doDelete = async id => {
     if (!confirm('Lid definitief verwijderen?')) return
     await api.delete(`/admin/members/${id}`)
@@ -411,6 +471,7 @@ function LedenSection() {
                   {m.payment_method === 'zin'              && <span className="badge-success">ZIN</span>}
                   {m.payment_method === 'cash'             && <span className="badge-warning">Cash</span>}
                   {m.is_cash_payer && !m.payment_method    ? <span className="badge-warning">Cash</span> : null}
+                  {m.subscription_type === 'custom'        && <span style={{padding:'1px 5px',borderRadius:8,background:'rgba(168,85,247,0.18)',color:'#a855f7',fontSize:'0.7rem',fontWeight:700}}>Maatwerk</span>}
                   {m.membership_paused ? <span className="badge-error">Gepauzeerd</span> : null}
                   {m.fonds_days_remaining != null && m.fonds_days_remaining <= 30 && (
                     m.fonds_days_remaining <= 0
@@ -500,6 +561,11 @@ function LedenSection() {
                       </span>}
                     </div>
                     {activeMem.admin_price && <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>Prijs: {fmtMoney(activeMem.admin_price)}</div>}
+                    {activeMem.subscription_type === 'custom' && activeMem.custom_amount != null && (
+                      <div style={{fontSize:'0.8rem',color:'var(--accent)',fontWeight:600,marginTop:2}}>
+                        Maatwerk incasso: {fmtMoney(activeMem.custom_amount)}/mnd
+                      </div>
+                    )}
                     {activeMem.is_cash && !activeMem.cash_paid && (
                       <button className="btn btn-primary btn-sm" style={{marginTop:'0.5rem'}} onClick={() => doMarkPaid(activeMem.id)}>
                         <Check size={13}/> Betaling ontvangen
@@ -507,6 +573,45 @@ function LedenSection() {
                     )}
                   </div>
                 ) : <p style={{color:'var(--text-muted)',fontSize:'0.875rem',marginBottom:'0.75rem'}}>Geen actief lidmaatschap</p>}
+
+                {/* Maatwerk bedrag bewerken */}
+                {activeMem && activeMem.payment_type === 'mollie' && (
+                  <div style={{marginBottom:'0.75rem'}}>
+                    {editCustomAmount ? (
+                      <div style={{padding:'0.75rem',background:'var(--surface-3)',borderRadius:'var(--r)',display:'flex',flexDirection:'column',gap:'0.5rem'}}>
+                        <label className="input-label">Maatwerk incassobedrag (€/mnd)</label>
+                        <div style={{position:'relative'}}>
+                          <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:'var(--text-muted)',pointerEvents:'none'}}>€</span>
+                          <input
+                            className="input"
+                            type="number"
+                            step="0.01"
+                            min="1"
+                            value={customAmountVal}
+                            onChange={e => setCustomAmountVal(e.target.value)}
+                            placeholder={activeMem.custom_amount ? String(activeMem.custom_amount) : '25.00'}
+                            style={{paddingLeft:'1.75rem'}}
+                          />
+                        </div>
+                        <p style={{fontSize:'0.75rem',color:'var(--text-muted)',margin:0}}>
+                          De Mollie subscription wordt bijgewerkt. De wijziging geldt vanaf de volgende incasso.
+                        </p>
+                        <div style={{display:'flex',gap:'0.5rem'}}>
+                          <button className="btn btn-primary btn-sm" onClick={doUpdateCustomAmount}><Check size={13}/> Opslaan</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setEditCustomAmount(false)}><X size={13}/> Annuleren</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{fontSize:'0.78rem'}}
+                        onClick={() => { setCustomAmountVal(activeMem.custom_amount ? String(activeMem.custom_amount) : ''); setEditCustomAmount(true) }}
+                      >
+                        <Euro size={12}/> {activeMem.subscription_type === 'custom' ? 'Maatwerk bedrag wijzigen' : 'Maatwerk bedrag instellen'}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {m.pt_lessons_remaining > 0 && (
                   <div style={{padding:'0.5rem 0.75rem',background:'var(--accent-dim)',borderRadius:'var(--r)',fontSize:'0.85rem',color:'var(--accent)',marginBottom:'0.75rem'}}>
