@@ -376,6 +376,7 @@ const createMemberWithSepa = async (req, res) => {
             description,
             consumerName:    `${first_name.trim()} ${last_name.trim()}`,
             consumerAccount: ibanClean,
+            redirectUrl:     `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/dashboard`,
             webhookUrl:      process.env.MOLLIE_WEBHOOK_URL,
             metadata: {
               type:          'membership_first',
