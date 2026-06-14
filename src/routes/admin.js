@@ -45,6 +45,41 @@ router.post('/payment-failures/auto-remind',         ctrl.processAutoReminders);
 router.put('/payment-failures/:id/paid',             ctrl.markPaymentPaid);
 router.put('/payment-failures/:id/pause',            ctrl.pauseMembershipFromFailure);
 
+// ── E-mail diagnostiek ─────────────────────────────────────────────────────
+router.get('/test-email', async (req, res) => {
+  const nodemailer = require('nodemailer');
+  const to = req.query.to || req.user?.email;
+  if (!to) return res.status(400).json({ error: 'Geef ?to=email mee.' });
+
+  const cfg = {
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    user: process.env.SMTP_USER,
+    from: process.env.SMTP_USER || process.env.FROM_EMAIL,
+  };
+
+  if (!cfg.host || !cfg.user || !process.env.SMTP_PASS) {
+    return res.json({ ok: false, error: 'SMTP_HOST, SMTP_USER of SMTP_PASS ontbreekt op Railway.' });
+  }
+
+  const t = nodemailer.createTransport({
+    host: cfg.host, port: cfg.port, secure: false,
+    auth: { user: cfg.user, pass: process.env.SMTP_PASS },
+    tls: { rejectUnauthorized: false },
+  });
+
+  try {
+    await t.verify();
+    const info = await t.sendMail({
+      from: `"MHGym Test" <${cfg.from}>`, to,
+      subject: 'MHGym SMTP test', text: 'SMTP werkt.',
+    });
+    res.json({ ok: true, messageId: info.messageId, from: cfg.from, to, host: cfg.host });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, code: err.code, responseCode: err.responseCode, response: err.response, from: cfg.from, host: cfg.host });
+  }
+});
+
 // ── Berichten (chat) ────────────────────────────────────────────────────────
 router.get('/messages/unread-count',     msgCtrl.adminUnreadCount);
 router.get('/messages',                  msgCtrl.adminListConversations);

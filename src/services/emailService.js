@@ -43,9 +43,9 @@ async function sendMail({ to, subject, html }) {
     return;
   }
 
-  // FROM berekend bij verzending — SMTP_USER als fallback zodat afzender
-  // altijd overeenkomt met de geauthenticeerde mailbox (vereist door veel hosters)
-  const fromAddress = process.env.FROM_EMAIL || process.env.SMTP_USER || 'noreply@mhgym.nl';
+  // Shared hosters (JouwWeb e.a.) eisen dat From: exact overeenkomt met de
+  // geauthenticeerde SMTP-mailbox. Gebruik daarom SMTP_USER als afzenderadres.
+  const fromAddress = process.env.SMTP_USER  || process.env.FROM_EMAIL || 'noreply@mhgym.nl';
   const fromName    = process.env.FROM_NAME  || 'MHGym';
   const from        = `"${fromName}" <${fromAddress}>`;
 
