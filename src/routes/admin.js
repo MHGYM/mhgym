@@ -3,6 +3,37 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const ctrl = require('../controllers/adminController');
 const msgCtrl = require('../controllers/messagesController');
 
+// ── TIJDELIJK: SMTP diagnostiek zonder JWT (beveiligd via ADMIN_SECRET) ────
+router.get('/test-email-public', async (req, res) => {
+  if (!process.env.ADMIN_SECRET || req.query.secret !== process.env.ADMIN_SECRET) {
+    return res.status(401).json({ error: 'Onbevoegd.' });
+  }
+  const nodemailer = require('nodemailer');
+  const to = req.query.to || 'test@mhgym.nl';
+  const cfg = {
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+    from: process.env.SMTP_USER || process.env.FROM_EMAIL,
+  };
+  if (!cfg.host || !cfg.user || !cfg.pass) {
+    return res.json({ ok: false, error: 'SMTP_HOST, SMTP_USER of SMTP_PASS ontbreekt.', cfg: { host: cfg.host, user: cfg.user, passSet: !!cfg.pass } });
+  }
+  const t = nodemailer.createTransport({
+    host: cfg.host, port: cfg.port, secure: false,
+    auth: { user: cfg.user, pass: cfg.pass },
+    tls: { rejectUnauthorized: false },
+  });
+  try {
+    await t.verify();
+    const info = await t.sendMail({ from: `"MHGym Test" <${cfg.from}>`, to, subject: 'MHGym SMTP test', text: 'SMTP werkt via Railway.' });
+    res.json({ ok: true, messageId: info.messageId, from: cfg.from, to, host: cfg.host, port: cfg.port });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, code: err.code, responseCode: err.responseCode, response: err.response, from: cfg.from, host: cfg.host, port: cfg.port });
+  }
+});
+
 router.use(authenticate, requireAdmin);
 
 // ── Statistieken ────────────────────────────────────────────────────────────
