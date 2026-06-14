@@ -45,9 +45,10 @@ function AddMemberModal({ onClose, onCreated }) {
     first_name: '', last_name: '', email: '', phone: '', iban: '', membership_id: '', payment_method: 'sepa',
     use_custom_amount: false, custom_amount: '',
   })
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState('')
-  const [success,  setSuccess]  = useState('')
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState('')
+  const [success,     setSuccess]     = useState('')
+  const [checkoutUrl, setCheckoutUrl] = useState(null)
 
   useEffect(() => {
     api.get('/memberships').then(r => {
@@ -78,8 +79,9 @@ function AddMemberModal({ onClose, onCreated }) {
         return
       }
     }
-    // Maatwerk bedrag validatie
-    if (form.payment_method === 'sepa' && form.use_custom_amount) {
+    // Maatwerk bedrag validatie (SEPA en iDEAL)
+    const usesCustomAmount = ['sepa', 'ideal'].includes(form.payment_method)
+    if (usesCustomAmount && form.use_custom_amount) {
       const ca = parseFloat(form.custom_amount)
       if (isNaN(ca) || ca <= 0) {
         setError('Vul een geldig maatwerk bedrag in (bijv. 25.00).')
@@ -92,11 +94,12 @@ function AddMemberModal({ onClose, onCreated }) {
         ...form,
         iban: form.payment_method === 'sepa' ? (ibanClean || undefined) : undefined,
         membership_id: parseInt(form.membership_id),
-        custom_amount: (form.payment_method === 'sepa' && form.use_custom_amount && form.custom_amount)
+        custom_amount: (usesCustomAmount && form.use_custom_amount && form.custom_amount)
           ? parseFloat(form.custom_amount)
           : undefined,
       })
       setSuccess(r.data.message)
+      setCheckoutUrl(r.data.checkout_url || null)
       onCreated?.()
     } catch (e) {
       setError(e.response?.data?.error || 'Fout bij aanmaken lid.')
@@ -112,7 +115,9 @@ function AddMemberModal({ onClose, onCreated }) {
       <div className="card" style={{width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto'}}>
         <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.25rem'}}>
           <h2 style={{margin:0, fontSize:'1.1rem'}}>
-            {form.payment_method === 'sepa' ? 'Nieuw lid via SEPA incasso' : 'Nieuw lid aanmaken'}
+            {form.payment_method === 'sepa'  ? 'Nieuw lid — SEPA incasso' :
+             form.payment_method === 'ideal' ? 'Nieuw lid — iDEAL betaling' :
+             'Nieuw lid aanmaken'}
           </h2>
           <button className="btn-icon" onClick={onClose}><X size={18}/></button>
         </div>
@@ -125,6 +130,28 @@ function AddMemberModal({ onClose, onCreated }) {
                 De welkomstmail met tijdelijk wachtwoord is verstuurd. Het lid kan direct inloggen.
               </p>
             </div>
+            {checkoutUrl && (
+              <div style={{background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:'1rem',marginBottom:'1rem'}}>
+                <p style={{fontWeight:600,margin:'0 0 0.5rem',fontSize:'0.9rem'}}>iDEAL betaallink — stuur naar het lid</p>
+                <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+                  <input
+                    readOnly
+                    value={checkoutUrl}
+                    style={{flex:1,fontFamily:'monospace',fontSize:'0.75rem',background:'var(--surface-1)',border:'1px solid var(--border)',borderRadius:'var(--r-sm)',padding:'0.4rem 0.6rem',color:'var(--text-1)'}}
+                  />
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => navigator.clipboard.writeText(checkoutUrl)}
+                    title="Kopieer link"
+                  >
+                    Kopieer
+                  </button>
+                </div>
+                <p style={{color:'var(--text-muted)',fontSize:'0.75rem',margin:'0.4rem 0 0'}}>
+                  Nadat het lid betaalt via iDEAL wordt de maandelijkse incasso automatisch gestart.
+                </p>
+              </div>
+            )}
             <button className="btn btn-primary" onClick={onClose}>Sluiten</button>
           </div>
         ) : (
@@ -150,7 +177,8 @@ function AddMemberModal({ onClose, onCreated }) {
             <div>
               <label className="input-label">Betalingswijze *</label>
               <select className="input" value={form.payment_method} onChange={set('payment_method')}>
-                <option value="sepa">SEPA Incasso</option>
+                <option value="sepa">SEPA Incasso (IBAN + mandaat)</option>
+                <option value="ideal">iDEAL eerste betaling</option>
                 <option value="jeugdfonds">Jeugdfonds Sport</option>
                 <option value="volwassenenfonds">Volwassenenfonds</option>
                 <option value="pgb">PGB</option>
@@ -184,8 +212,8 @@ function AddMemberModal({ onClose, onCreated }) {
               </select>
             </div>
 
-            {/* Maatwerk bedrag — alleen bij SEPA */}
-            {form.payment_method === 'sepa' && (
+            {/* Maatwerk bedrag — bij SEPA en iDEAL */}
+            {['sepa', 'ideal'].includes(form.payment_method) && (
               <div>
                 <label style={{display:'flex', alignItems:'center', gap:7, fontSize:'0.875rem', cursor:'pointer', userSelect:'none'}}>
                   <input
@@ -223,9 +251,17 @@ function AddMemberModal({ onClose, onCreated }) {
               <strong style={{color:'var(--text-2)'}}>Wat er gebeurt:</strong><br/>
               {form.payment_method === 'sepa' && <>
                 1. Account aangemaakt met tijdelijk wachtwoord<br/>
-                2. Mollie klant + SEPA mandate aangemaakt<br/>
-                3. Recurring subscription gestart (volgende maand)<br/>
-                4. Welkomstmail verstuurd naar het lid
+                2. Mollie klant aangemaakt<br/>
+                3. SEPA-mandaat aangemaakt op basis van getekend formulier<br/>
+                4. Maandelijkse incasso gestart (eerste afschrijving binnen 2–3 werkdagen)<br/>
+                5. Welkomstmail verstuurd naar het lid
+              </>}
+              {form.payment_method === 'ideal' && <>
+                1. Account aangemaakt met tijdelijk wachtwoord<br/>
+                2. Mollie klant aangemaakt<br/>
+                3. iDEAL-betaallink gegenereerd — kopieer en stuur naar het lid<br/>
+                4. Na betaling: mandaat + maandelijkse incasso automatisch gestart<br/>
+                5. Welkomstmail verstuurd naar het lid
               </>}
               {form.payment_method === 'jeugdfonds' && <>
                 1. Account aangemaakt met tijdelijk wachtwoord<br/>
