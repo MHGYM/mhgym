@@ -29,12 +29,12 @@ function getTransporter() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    // Voorkomt afwijzing bij self-signed/wildcard-certificaten (JouwWeb e.a.)
+    tls: { rejectUnauthorized: false },
   });
 
   return _transporter;
 }
-
-const FROM = `"${process.env.FROM_NAME || 'MHGym'}" <${process.env.FROM_EMAIL || 'noreply@mhgym.nl'}>`;
 
 async function sendMail({ to, subject, html }) {
   const transporter = getTransporter();
@@ -42,11 +42,19 @@ async function sendMail({ to, subject, html }) {
     console.log(`[Email MOCK] To: ${to} | Subject: ${subject}`);
     return;
   }
+
+  // FROM berekend bij verzending — SMTP_USER als fallback zodat afzender
+  // altijd overeenkomt met de geauthenticeerde mailbox (vereist door veel hosters)
+  const fromAddress = process.env.FROM_EMAIL || process.env.SMTP_USER || 'noreply@mhgym.nl';
+  const fromName    = process.env.FROM_NAME  || 'MHGym';
+  const from        = `"${fromName}" <${fromAddress}>`;
+
   try {
-    await transporter.sendMail({ from: FROM, to, subject, html });
+    await transporter.sendMail({ from, to, subject, html });
     console.log(`[Email] Verzonden naar ${to}: ${subject}`);
   } catch (err) {
-    console.error(`[Email] Fout bij verzenden naar ${to}:`, err.message);
+    console.error(`[Email] Fout bij verzenden naar ${to}: ${err.message}`);
+    console.error(`[Email] SMTP code=${err.code} responseCode=${err.responseCode} response=${err.response}`);
   }
 }
 
