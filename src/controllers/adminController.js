@@ -324,73 +324,85 @@ const createMemberWithSepa = async (req, res) => {
   });
   const userId = Number(userRes.lastInsertRowid);
 
-  // Mollie klant aanmaken — alleen voor SEPA incasso
-  let mollieCustomerId = null;
-  let subscriptionId   = null;
+  // Mollie klant + eerste SEPA-betaling — alleen voor SEPA incasso
+  let mollieCustomerId    = null;
+  let mollieFirstPaymentId = null;
 
   if (payment_method === 'sepa') {
-    try {
-      const { createMollieClient } = require('@mollie/api-client');
-      if (process.env.MOLLIE_API_KEY && process.env.MOLLIE_API_KEY !== 'test_dummy') {
-        const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
+    const { createMollieClient } = require('@mollie/api-client');
 
-        // Klant aanmaken
-        const customer = await mollie.customers.create({
+    if (!process.env.MOLLIE_API_KEY || process.env.MOLLIE_API_KEY === 'test_dummy') {
+      console.warn('[Admin] Geen Mollie API key — SEPA overgeslagen voor user', userId);
+    } else {
+      const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
+
+      // Stap 1 — Mollie klant aanmaken
+      let customer;
+      try {
+        customer = await mollie.customers.create({
           name:   `${first_name.trim()} ${last_name.trim()}`,
           email:  email.toLowerCase().trim(),
           locale: 'nl_NL',
         });
-        mollieCustomerId = customer.id;
+      } catch (mollieErr) {
+        // Klant aanmaken mislukt: ruim aangemaakte user op en geef fout terug
+        await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] }).catch(() => {});
+        return res.status(502).json({ error: `Mollie klant aanmaken mislukt: ${mollieErr.message}` });
+      }
+      mollieCustomerId = customer.id;
+      await db.execute({
+        sql: `UPDATE users SET mollie_customer_id = ? WHERE id = ?`,
+        args: [mollieCustomerId, userId],
+      });
 
-        // Sla customer ID op bij user
-        await db.execute({ sql: `UPDATE users SET mollie_customer_id = ? WHERE id = ?`, args: [mollieCustomerId, userId] });
+      // Stap 2 — Eerste SEPA-betaling (sequenceType 'first') — alleen als IBAN opgegeven
+      // Dit legt de incassomachtiging vast en debiteert de eerste maand.
+      // Mollie stuurt nadien een webhook → de webhook maakt de recurring subscription aan.
+      if (iban) {
+        const ibanClean    = iban.replace(/\s/g, '').toUpperCase();
+        const firstAmount  = customAmountValue
+          ? customAmountValue.toFixed(2)
+          : Number(membership.price_monthly).toFixed(2);
+        const suffix       = customAmountValue ? ' (maatwerk)' : '';
+        const description  = `MHGym ${membership.name} (${membership.category}) — eerste betaling${suffix}`;
 
-        // SEPA mandate aanmaken via Mollie (alleen als IBAN opgegeven)
-        if (iban) {
-          await mollie.customerMandates.create(mollieCustomerId, {
+        let firstPayment;
+        try {
+          firstPayment = await mollie.payments.create({
+            amount:          { currency: 'EUR', value: firstAmount },
+            customerId:      mollieCustomerId,
+            sequenceType:    'first',
             method:          'directdebit',
+            description,
             consumerName:    `${first_name.trim()} ${last_name.trim()}`,
-            consumerAccount: iban.replace(/\s/g, '').toUpperCase(),
-          });
-        }
-
-        // Recurring subscription alleen aanmaken als IBAN (mandate) aanwezig is
-        if (iban) {
-          const nextMonth = new Date();
-          nextMonth.setMonth(nextMonth.getMonth() + 1);
-          const startDate = nextMonth.toISOString().split('T')[0];
-
-          // Gebruik maatwerk bedrag indien opgegeven, anders standaard abonnementsprijs
-          const subscriptionAmount = customAmountValue
-            ? customAmountValue.toFixed(2)
-            : Number(membership.price_monthly).toFixed(2);
-
-          const descriptionSuffix = customAmountValue ? ' (maatwerk)' : '';
-
-          const subscription = await mollie.subscriptions.create({
-            customerId:  mollieCustomerId,
-            amount:      { currency: 'EUR', value: subscriptionAmount },
-            interval:    '1 month',
-            startDate,
-            description: `MHGym ${membership.name} (${membership.category}) — maandelijks${descriptionSuffix}`,
-            webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
+            consumerAccount: ibanClean,
+            webhookUrl:      process.env.MOLLIE_WEBHOOK_URL,
             metadata: {
-              type:          'subscription_payment',
+              type:          'membership_first',
               user_id:       String(userId),
               membership_id: String(membership_id),
+              ...(customAmountValue ? { custom_amount: customAmountValue.toFixed(2) } : {}),
             },
           });
-          subscriptionId = subscription.id;
-          console.log(`[Admin] Mollie subscription aangemaakt: ${subscriptionId} voor nieuwe user ${userId}`);
-        } else {
-          console.log(`[Admin] Geen IBAN — subscription overgeslagen voor user ${userId}`);
+        } catch (mollieErr) {
+          // Eerste betaling mislukt: ruim op en geef fout terug
+          await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] }).catch(() => {});
+          return res.status(502).json({ error: `Mollie eerste betaling mislukt: ${mollieErr.message}` });
         }
+
+        mollieFirstPaymentId = firstPayment.id;
+
+        // Betaling opslaan — webhook verwijst hierop
+        await db.execute({
+          sql: `INSERT INTO payments (user_id, mollie_payment_id, amount, description, type, membership_id, status)
+                VALUES (?, ?, ?, ?, 'membership', ?, ?)`,
+          args: [userId, firstPayment.id, firstAmount, description, membership_id, firstPayment.status],
+        });
+
+        console.log(`[Admin] Mollie eerste betaling aangemaakt: ${firstPayment.id} (€${firstAmount}) voor user ${userId}`);
       } else {
-        console.warn('[Admin] Geen Mollie API key — SEPA mandate overgeslagen voor user', userId);
+        console.log(`[Admin] Geen IBAN opgegeven — eerste betaling overgeslagen voor user ${userId}`);
       }
-    } catch (mollieErr) {
-      console.error('[Admin] Mollie fout bij aanmaken mandate/subscription:', mollieErr.message);
-      // We gaan door — lidmaatschap wordt alsnog geactiveerd, admin kan later corrigeren
     }
   } else {
     console.log(`[Admin] Betalingswijze '${payment_method}' — Mollie overgeslagen voor user ${userId}`);
@@ -401,6 +413,8 @@ const createMemberWithSepa = async (req, res) => {
   const contractEnd  = new Date(now);
   contractEnd.setMonth(contractEnd.getMonth() + (membership.minimum_months || 1));
 
+  // mollie_subscription_id is nog null — wordt ingevuld door de webhook
+  // nadat de eerste SEPA-betaling is verwerkt (sequenceType 'recurring').
   await db.execute({
     sql: `INSERT INTO user_memberships
             (user_id, membership_id, status, start_date, contract_start, contract_end,
@@ -414,7 +428,7 @@ const createMemberWithSepa = async (req, res) => {
       contractEnd.toISOString().split('T')[0],
       membership.minimum_months || 1,
       membership.notice_period_months || 1,
-      subscriptionId,
+      null, // ingesteld door webhook na eerste betaling
       customAmountValue,
       customAmountValue ? 'custom' : 'standard',
     ],
@@ -443,13 +457,13 @@ const createMemberWithSepa = async (req, res) => {
     memberNote,
   }).catch(e => console.error('[Email] admin welcome:', e.message));
 
-  console.log(`[Admin] Nieuw lid aangemaakt: ${email} (user ${userId}) — subscription: ${subscriptionId || 'geen'}`);
+  console.log(`[Admin] Nieuw lid aangemaakt: ${email} (user ${userId}) — eerste betaling: ${mollieFirstPaymentId || 'geen (geen IBAN)'}`);
 
   res.status(201).json({
     message: `Lid ${first_name} ${last_name} aangemaakt. Welkomstmail verstuurd naar ${email}.`,
     user_id: userId,
-    mollie_customer_id: mollieCustomerId,
-    subscription_id: subscriptionId,
+    mollie_customer_id:    mollieCustomerId,
+    mollie_first_payment:  mollieFirstPaymentId,
   });
 };
 

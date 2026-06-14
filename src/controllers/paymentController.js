@@ -209,14 +209,20 @@ const webhook = async (req, res) => {
     let subscriptionId = null;
     const customerId   = molliePayment.customerId || user.mollie_customer_id;
 
+    // Gebruik custom_amount uit metadata (admin-flow) of standaard abonnementsprijs
+    const subscriptionAmount = meta.custom_amount
+      ? parseFloat(meta.custom_amount).toFixed(2)
+      : Number(m.price_monthly).toFixed(2);
+    const subDescSuffix = meta.custom_amount ? ' (maatwerk)' : '';
+
     if (customerId) {
       try {
         const subscription = await mollieClient.subscriptions.create({
           customerId,
-          amount:      { currency: 'EUR', value: Number(m.price_monthly).toFixed(2) },
+          amount:      { currency: 'EUR', value: subscriptionAmount },
           interval:    '1 month',
           startDate:   toDateStr(nextBillingDate),
-          description: `MHGym ${m.name} (${m.category}) — maandelijks`,
+          description: `MHGym ${m.name} (${m.category}) — maandelijks${subDescSuffix}`,
           webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
           metadata: {
             type:          'subscription_payment',
@@ -225,38 +231,56 @@ const webhook = async (req, res) => {
           },
         });
         subscriptionId = subscription.id;
-        // Sla customer_id op als nog niet gedaan
         await db.execute({
           sql: `UPDATE users SET mollie_customer_id = ? WHERE id = ? AND mollie_customer_id IS NULL`,
           args: [customerId, userId],
         });
-        console.log(`[Mollie] Subscription aangemaakt: ${subscriptionId} voor user ${userId}`);
+        console.log(`[Mollie] Subscription aangemaakt: ${subscriptionId} voor user ${userId} (€${subscriptionAmount}/mnd)`);
       } catch (subErr) {
         console.error('[Mollie] Subscription aanmaken mislukt:', subErr.message);
-        // Ga door met lidmaatschapsactivering ook als subscription mislukt
       }
     }
 
-    // Deactiveer huidig lidmaatschap + activeer nieuw
-    await db.batch([
-      {
-        sql: `UPDATE user_memberships SET status = 'expired', updated_at = datetime('now')
-              WHERE user_id = ? AND (status = 'active' OR status = 'cancelling')`,
-        args: [userId],
-      },
-      {
-        sql: `INSERT INTO user_memberships
-                (user_id, membership_id, status, start_date, contract_start, contract_end,
-                 minimum_months, notice_period_months, mollie_subscription_id, agreed_to_terms)
-              VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, 1)`,
-        args: [
-          userId, membershipId,
-          toDateStr(startDate), toDateStr(startDate), toDateStr(contractEnd),
-          m.minimum_months || 1, m.notice_period_months || 1,
-          subscriptionId,
-        ],
-      },
-    ], 'write');
+    // Controleer of er al een actief lidmaatschap bestaat (admin-flow: admin maakt lid aan vóór eerste betaling)
+    const existingRes = await db.execute({
+      sql: `SELECT id FROM user_memberships
+            WHERE user_id = ? AND membership_id = ? AND status IN ('active','cancelling')
+            ORDER BY created_at DESC LIMIT 1`,
+      args: [userId, membershipId],
+    });
+    const existingMembership = existingRes.rows[0];
+
+    if (existingMembership) {
+      // Admin-flow: lidmaatschap bestaat al — alleen subscription ID bijwerken
+      await db.execute({
+        sql: `UPDATE user_memberships
+              SET mollie_subscription_id = ?, updated_at = datetime('now')
+              WHERE id = ?`,
+        args: [subscriptionId, existingMembership.id],
+      });
+      console.log(`[Webhook] Subscription ${subscriptionId} gekoppeld aan bestaand lidmaatschap ${existingMembership.id}`);
+    } else {
+      // Self-signup-flow: deactiveer oud lidmaatschap en maak nieuwe rij aan
+      await db.batch([
+        {
+          sql: `UPDATE user_memberships SET status = 'expired', updated_at = datetime('now')
+                WHERE user_id = ? AND (status = 'active' OR status = 'cancelling')`,
+          args: [userId],
+        },
+        {
+          sql: `INSERT INTO user_memberships
+                  (user_id, membership_id, status, start_date, contract_start, contract_end,
+                   minimum_months, notice_period_months, mollie_subscription_id, agreed_to_terms)
+                VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, 1)`,
+          args: [
+            userId, membershipId,
+            toDateStr(startDate), toDateStr(startDate), toDateStr(contractEnd),
+            m.minimum_months || 1, m.notice_period_months || 1,
+            subscriptionId,
+          ],
+        },
+      ], 'write');
+    }
 
     // Stuur bevestigingsmail
     sendMembershipConfirmation({
