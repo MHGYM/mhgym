@@ -217,7 +217,7 @@ const webhook = async (req, res) => {
 
     if (customerId) {
       try {
-        const subscription = await mollieClient.subscriptions.create({
+        const subscription = await mollieClient.customerSubscriptions.create({
           customerId,
           amount:      { currency: 'EUR', value: subscriptionAmount },
           interval:    '1 month',
@@ -410,7 +410,7 @@ const webhook = async (req, res) => {
 
       if (customerId) {
         try {
-          const sub = await mollieClient.subscriptions.create({
+          const sub = await mollieClient.customerSubscriptions.create({
             customerId,
             amount: { currency: 'EUR', value: Number(plan.price_monthly).toFixed(2) },
             interval: '1 month',

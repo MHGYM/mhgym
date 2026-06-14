@@ -510,7 +510,7 @@ const cancelPtSubscription = async (req, res) => {
     const userRes = await db.execute({ sql: 'SELECT mollie_customer_id FROM users WHERE id = ?', args: [req.user.id] });
     const customerId = userRes.rows[0]?.mollie_customer_id;
     if (customerId) {
-      try { await mollieClient.subscriptions.cancel({ customerId, id: sub.mollie_subscription_id }); }
+      try { await mollieClient.customerSubscriptions.cancel({ customerId, id: sub.mollie_subscription_id }); }
       catch (e) { console.error('[Mollie] PT sub annuleren mislukt:', e.message); }
     }
   }

@@ -101,7 +101,7 @@ const cancelMembership = async (req, res) => {
 
   if (customerId && membership.mollie_subscription_id) {
     try {
-      await mollieClient.subscriptions.cancel({
+      await mollieClient.customerSubscriptions.cancel({
         customerId,
         id: membership.mollie_subscription_id,
       });

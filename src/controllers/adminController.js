@@ -384,7 +384,7 @@ const createMemberWithSepa = async (req, res) => {
 
         // Stap 3 — Subscription aanmaken (eerste incasso binnen 2-3 werkdagen via SEPA)
         try {
-          const subscription = await mollie.subscriptions.create({
+          const subscription = await mollie.customerSubscriptions.create({
             customerId:  mollieCustomerId,
             mandateId:   mandate.id,
             amount:      { currency: 'EUR', value: amount },
@@ -556,7 +556,7 @@ const updateCustomAmount = async (req, res) => {
         if (user?.mollie_customer_id) {
           // Annuleer bestaande subscription
           try {
-            await mollie.subscriptions.cancel(um.mollie_subscription_id, { customerId: user.mollie_customer_id });
+            await mollie.customerSubscriptions.cancel({ customerId: user.mollie_customer_id, id: um.mollie_subscription_id });
             console.log(`[Admin] Mollie subscription ${um.mollie_subscription_id} geannuleerd (bedrag wijziging)`);
           } catch (cancelErr) {
             console.warn('[Admin] Subscription annuleren mislukt (mogelijk al gestopt):', cancelErr.message);
@@ -567,7 +567,7 @@ const updateCustomAmount = async (req, res) => {
           nextMonth.setMonth(nextMonth.getMonth() + 1);
           const startDate = nextMonth.toISOString().split('T')[0];
 
-          const newSub = await mollie.subscriptions.create({
+          const newSub = await mollie.customerSubscriptions.create({
             customerId:  user.mollie_customer_id,
             amount:      { currency: 'EUR', value: newAmountStr },
             interval:    '1 month',
