@@ -7,54 +7,36 @@
  *  - Welkomstmail na registratie
  */
 
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-// Maak transporter aan (wordt lazy geïnitialiseerd)
-let _transporter = null;
-
-function getTransporter() {
-  if (_transporter) return _transporter;
-
-  // Als er geen SMTP config is, gebruik Ethereal (nep-mailbox, goed voor dev)
-  if (!process.env.SMTP_USER || process.env.SMTP_USER === 'your@gmail.com') {
-    console.warn('[Email] Geen SMTP config → e-mails worden gelogd maar niet verzonden');
-    return null;
-  }
-
-  _transporter = nodemailer.createTransport({
-    host:   process.env.SMTP_HOST || 'smtp.gmail.com',
-    port:   parseInt(process.env.SMTP_PORT || '587'),
-    secure: false,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    // Voorkomt afwijzing bij self-signed/wildcard-certificaten (JouwWeb e.a.)
-    tls: { rejectUnauthorized: false },
-  });
-
-  return _transporter;
+// Lazy Resend client — alleen aangemaakt als RESEND_API_KEY beschikbaar is
+let _resend = null;
+function getResend() {
+  if (_resend) return _resend;
+  if (!process.env.RESEND_API_KEY) return null;
+  _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
 }
 
 async function sendMail({ to, subject, html }) {
-  const transporter = getTransporter();
-  if (!transporter) {
+  const resend = getResend();
+  if (!resend) {
     console.log(`[Email MOCK] To: ${to} | Subject: ${subject}`);
     return;
   }
 
-  // Shared hosters (JouwWeb e.a.) eisen dat From: exact overeenkomt met de
-  // geauthenticeerde SMTP-mailbox. Gebruik daarom SMTP_USER als afzenderadres.
-  const fromAddress = process.env.SMTP_USER  || process.env.FROM_EMAIL || 'noreply@mhgym.nl';
-  const fromName    = process.env.FROM_NAME  || 'MHGym';
-  const from        = `"${fromName}" <${fromAddress}>`;
+  // Tijdelijk onboarding@resend.dev (Resend's gedeelde testafzender, werkt zonder
+  // domeinverificatie). Vervangen door info@mhgym.nl zodra mhgym.nl geverifieerd is.
+  const fromName = process.env.FROM_NAME || 'MHGym';
+  const fromAddr = process.env.FROM_EMAIL || 'onboarding@resend.dev';
+  const from     = `${fromName} <${fromAddr}>`;
 
-  try {
-    await transporter.sendMail({ from, to, subject, html });
-    console.log(`[Email] Verzonden naar ${to}: ${subject}`);
-  } catch (err) {
-    console.error(`[Email] Fout bij verzenden naar ${to}: ${err.message}`);
-    console.error(`[Email] SMTP code=${err.code} responseCode=${err.responseCode} response=${err.response}`);
+  const { data, error } = await resend.emails.send({ from, to, subject, html });
+  if (error) {
+    console.error(`[Email] Resend fout naar ${to}: ${error.message}`);
+    console.error(`[Email] Resend details:`, JSON.stringify(error));
+  } else {
+    console.log(`[Email] Verzonden naar ${to}: ${subject} (id: ${data?.id})`);
   }
 }
 

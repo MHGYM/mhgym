@@ -3,37 +3,6 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const ctrl = require('../controllers/adminController');
 const msgCtrl = require('../controllers/messagesController');
 
-// ── TIJDELIJK: SMTP diagnostiek zonder JWT (beveiligd via ADMIN_SECRET) ────
-router.get('/test-email-public', async (req, res) => {
-  if (!process.env.ADMIN_SECRET || req.query.secret !== process.env.ADMIN_SECRET) {
-    return res.status(401).json({ error: 'Onbevoegd.' });
-  }
-  const nodemailer = require('nodemailer');
-  const to = req.query.to || 'test@mhgym.nl';
-  const cfg = {
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-    from: process.env.SMTP_USER || process.env.FROM_EMAIL,
-  };
-  if (!cfg.host || !cfg.user || !cfg.pass) {
-    return res.json({ ok: false, error: 'SMTP_HOST, SMTP_USER of SMTP_PASS ontbreekt.', cfg: { host: cfg.host, user: cfg.user, passSet: !!cfg.pass } });
-  }
-  const t = nodemailer.createTransport({
-    host: cfg.host, port: cfg.port, secure: false,
-    auth: { user: cfg.user, pass: cfg.pass },
-    tls: { rejectUnauthorized: false },
-  });
-  try {
-    await t.verify();
-    const info = await t.sendMail({ from: `"MHGym Test" <${cfg.from}>`, to, subject: 'MHGym SMTP test', text: 'SMTP werkt via Railway.' });
-    res.json({ ok: true, messageId: info.messageId, from: cfg.from, to, host: cfg.host, port: cfg.port });
-  } catch (err) {
-    res.json({ ok: false, error: err.message, code: err.code, responseCode: err.responseCode, response: err.response, from: cfg.from, host: cfg.host, port: cfg.port });
-  }
-});
-
 router.use(authenticate, requireAdmin);
 
 // ── Statistieken ────────────────────────────────────────────────────────────
@@ -78,37 +47,20 @@ router.put('/payment-failures/:id/pause',            ctrl.pauseMembershipFromFai
 
 // ── E-mail diagnostiek ─────────────────────────────────────────────────────
 router.get('/test-email', async (req, res) => {
-  const nodemailer = require('nodemailer');
   const to = req.query.to || req.user?.email;
   if (!to) return res.status(400).json({ error: 'Geef ?to=email mee.' });
-
-  const cfg = {
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    user: process.env.SMTP_USER,
-    from: process.env.SMTP_USER || process.env.FROM_EMAIL,
-  };
-
-  if (!cfg.host || !cfg.user || !process.env.SMTP_PASS) {
-    return res.json({ ok: false, error: 'SMTP_HOST, SMTP_USER of SMTP_PASS ontbreekt op Railway.' });
+  if (!process.env.RESEND_API_KEY) {
+    return res.json({ ok: false, error: 'RESEND_API_KEY ontbreekt op Railway.' });
   }
-
-  const t = nodemailer.createTransport({
-    host: cfg.host, port: cfg.port, secure: false,
-    auth: { user: cfg.user, pass: process.env.SMTP_PASS },
-    tls: { rejectUnauthorized: false },
+  const { Resend } = require('resend');
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const fromAddr = process.env.FROM_EMAIL || 'onboarding@resend.dev';
+  const from = `MHGym Test <${fromAddr}>`;
+  const { data, error } = await resend.emails.send({
+    from, to, subject: 'MHGym e-mail test', text: 'Resend werkt vanuit Railway.',
   });
-
-  try {
-    await t.verify();
-    const info = await t.sendMail({
-      from: `"MHGym Test" <${cfg.from}>`, to,
-      subject: 'MHGym SMTP test', text: 'SMTP werkt.',
-    });
-    res.json({ ok: true, messageId: info.messageId, from: cfg.from, to, host: cfg.host });
-  } catch (err) {
-    res.json({ ok: false, error: err.message, code: err.code, responseCode: err.responseCode, response: err.response, from: cfg.from, host: cfg.host });
-  }
+  if (error) res.json({ ok: false, error: error.message, details: error, from });
+  else       res.json({ ok: true, messageId: data?.id, from, to });
 });
 
 // ── Berichten (chat) ────────────────────────────────────────────────────────
