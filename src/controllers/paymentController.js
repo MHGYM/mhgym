@@ -209,11 +209,14 @@ const webhook = async (req, res) => {
     let subscriptionId = null;
     const customerId   = molliePayment.customerId || user.mollie_customer_id;
 
-    // Gebruik custom_amount uit metadata (admin-flow) of standaard abonnementsprijs
-    const subscriptionAmount = meta.custom_amount
-      ? parseFloat(meta.custom_amount).toFixed(2)
-      : Number(m.price_monthly).toFixed(2);
-    const subDescSuffix = meta.custom_amount ? ' (maatwerk)' : '';
+    // monthly_amount = door admin ingesteld maandbedrag voor de subscription (los van de eerste betaling)
+    // custom_amount  = maatwerk abonnementsprijs (legacy-veld, ook voor subscription)
+    const subscriptionAmount = meta.monthly_amount
+      ? parseFloat(meta.monthly_amount).toFixed(2)
+      : (meta.custom_amount
+        ? parseFloat(meta.custom_amount).toFixed(2)
+        : Number(m.price_monthly).toFixed(2));
+    const subDescSuffix = (meta.monthly_amount || meta.custom_amount) ? ' (maatwerk)' : '';
 
     if (customerId) {
       try {
@@ -221,7 +224,7 @@ const webhook = async (req, res) => {
           customerId,
           amount:      { currency: 'EUR', value: subscriptionAmount },
           interval:    '1 month',
-          startDate:   toDateStr(nextBillingDate),
+          startDate:   meta.subscription_start_date || toDateStr(nextBillingDate),
           description: `MHGym ${m.name} (${m.category}) — maandelijks${subDescSuffix}`,
           webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
           metadata: {

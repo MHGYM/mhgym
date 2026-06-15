@@ -286,7 +286,7 @@ const addPtLessons = async (req, res) => {
  * - Stuurt welkomstmail met tijdelijk wachtwoord
  */
 const createMemberWithSepa = async (req, res) => {
-  const { first_name, last_name, email, phone, iban, membership_id, payment_method = 'sepa', custom_amount } = req.body;
+  const { first_name, last_name, email, phone, iban, membership_id, payment_method = 'sepa', custom_amount, start_date, registration_fee } = req.body;
 
   if (!first_name || !last_name || !email || !membership_id) {
     return res.status(400).json({ error: 'Voornaam, achternaam, e-mail en abonnement zijn verplicht.' });
@@ -330,6 +330,12 @@ const createMemberWithSepa = async (req, res) => {
   let mollieSubscriptionId = null;
   let checkoutUrl          = null;
 
+  // Startdatum (voor pro rato berekening en DB-insert)
+  const startDateStr = (['sepa', 'ideal'].includes(payment_method) && start_date)
+    ? start_date
+    : new Date().toISOString().split('T')[0];
+  const startDateObj = new Date(startDateStr + 'T12:00:00'); // T12:00 vermijdt DST-grensproblemen
+
   if (payment_method === 'sepa' || payment_method === 'ideal') {
     const { createMollieClient } = require('@mollie/api-client');
 
@@ -342,6 +348,17 @@ const createMemberWithSepa = async (req, res) => {
         : Number(membership.price_monthly).toFixed(2);
       const suffix      = customAmountValue ? ' (maatwerk)' : '';
       const description = `MHGym ${membership.name} (${membership.category})${suffix}`;
+
+      // Pro rato + inschrijfkosten berekening (server-side, authoritative)
+      const sdYear       = startDateObj.getFullYear();
+      const sdMonth      = startDateObj.getMonth();
+      const sdDay        = startDateObj.getDate();
+      const daysInMonth  = new Date(sdYear, sdMonth + 1, 0).getDate();
+      const daysLeft     = daysInMonth - sdDay + 1; // inclusief startdag
+      const proRata      = Math.ceil(daysLeft / daysInMonth * parseFloat(amount) * 100) / 100;
+      const regFee       = Math.max(0, Number(registration_fee ?? 15));
+      const firstPaymentAmount    = (proRata + regFee).toFixed(2);
+      const subscriptionStartDate = new Date(sdYear, sdMonth + 1, 1).toISOString().split('T')[0];
 
       // Stap 1 — Mollie klant aanmaken (zelfde voor beide opties)
       let customer;
@@ -382,14 +399,40 @@ const createMemberWithSepa = async (req, res) => {
           return res.status(502).json({ error: `Mollie mandaat aanmaken mislukt: ${mollieErr.message}` });
         }
 
-        // Stap 3 — Subscription aanmaken (eerste incasso binnen 2-3 werkdagen via SEPA)
+        // Stap 3 — Eenmalige betaling: inschrijfkosten + pro rato via SEPA
+        try {
+          const oneTimePayment = await mollie.payments.create({
+            customerId:   mollieCustomerId,
+            mandateId:    mandate.id,
+            sequenceType: 'recurring',
+            amount:       { currency: 'EUR', value: firstPaymentAmount },
+            description:  `MHGym inschrijving + pro rato (${daysLeft}/${daysInMonth} dagen)`,
+            webhookUrl:   process.env.MOLLIE_WEBHOOK_URL,
+            metadata: {
+              type:          'admin_registration_charge',
+              user_id:       String(userId),
+              membership_id: String(membership_id),
+            },
+          });
+          await db.execute({
+            sql: `INSERT INTO payments (user_id, mollie_payment_id, amount, description, type, membership_id, status)
+                  VALUES (?, ?, ?, ?, 'registration', ?, ?)`,
+            args: [userId, oneTimePayment.id, firstPaymentAmount, `Inschrijfkosten + pro rato`, membership_id, oneTimePayment.status],
+          });
+          console.log(`[Admin] Eenmalige SEPA betaling ${oneTimePayment.id} (€${firstPaymentAmount}) voor user ${userId}`);
+        } catch (mollieErr) {
+          await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] }).catch(() => {});
+          return res.status(502).json({ error: `Mollie eenmalige betaling aanmaken mislukt: ${mollieErr.message}` });
+        }
+
+        // Stap 4 — Maandelijkse subscription vanaf 1e van volgende maand
         try {
           const subscription = await mollie.customerSubscriptions.create({
             customerId:  mollieCustomerId,
             mandateId:   mandate.id,
             amount:      { currency: 'EUR', value: amount },
             interval:    '1 month',
-            startDate:   new Date().toISOString().split('T')[0],
+            startDate:   subscriptionStartDate,
             description: `${description} — maandelijks`,
             webhookUrl:  process.env.MOLLIE_WEBHOOK_URL,
             metadata: {
@@ -400,27 +443,29 @@ const createMemberWithSepa = async (req, res) => {
             },
           });
           mollieSubscriptionId = subscription.id;
-          console.log(`[Admin] SEPA mandaat ${mandate.id} + subscription ${subscription.id} (€${amount}/mnd) voor user ${userId}`);
+          console.log(`[Admin] SEPA mandaat ${mandate.id} + subscription ${subscription.id} (€${amount}/mnd vanaf ${subscriptionStartDate}) voor user ${userId}`);
         } catch (mollieErr) {
           await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] }).catch(() => {});
           return res.status(502).json({ error: `Mollie subscription aanmaken mislukt: ${mollieErr.message}` });
         }
 
       } else if (payment_method === 'ideal') {
-        // ── Optie B: iDEAL eerste betaling → mandaat + subscription via webhook ──
+        // ── Optie B: iDEAL eerste betaling (inschrijfkosten + pro rato) → mandaat + subscription via webhook ──
         try {
           const payment = await mollie.payments.create({
-            amount:       { currency: 'EUR', value: amount },
+            amount:       { currency: 'EUR', value: firstPaymentAmount },
             customerId:   mollieCustomerId,
             sequenceType: 'first',
             method:       'ideal',
-            description:  `${description} — eerste betaling iDEAL`,
+            description:  `MHGym inschrijving + pro rato — ${membership.name}`,
             redirectUrl:  `${process.env.FRONTEND_URL || 'https://app.mhgym.nl'}/dashboard`,
             webhookUrl:   process.env.MOLLIE_WEBHOOK_URL,
             metadata: {
-              type:          'membership_first',
-              user_id:       String(userId),
-              membership_id: String(membership_id),
+              type:                    'membership_first',
+              user_id:                 String(userId),
+              membership_id:           String(membership_id),
+              monthly_amount:          amount,
+              subscription_start_date: subscriptionStartDate,
               ...(customAmountValue ? { custom_amount: amount } : {}),
             },
           });
@@ -430,9 +475,9 @@ const createMemberWithSepa = async (req, res) => {
           await db.execute({
             sql: `INSERT INTO payments (user_id, mollie_payment_id, amount, description, type, membership_id, status)
                   VALUES (?, ?, ?, ?, 'membership', ?, ?)`,
-            args: [userId, payment.id, amount, `${description} — eerste betaling iDEAL`, membership_id, payment.status],
+            args: [userId, payment.id, firstPaymentAmount, `MHGym inschrijving + pro rato — ${membership.name}`, membership_id, payment.status],
           });
-          console.log(`[Admin] iDEAL betaling ${payment.id} aangemaakt voor user ${userId} — checkout: ${checkoutUrl}`);
+          console.log(`[Admin] iDEAL betaling ${payment.id} (€${firstPaymentAmount}) aangemaakt voor user ${userId} — checkout: ${checkoutUrl}`);
         } catch (mollieErr) {
           await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] }).catch(() => {});
           return res.status(502).json({ error: `Mollie iDEAL betaling aanmaken mislukt: ${mollieErr.message}` });
@@ -448,8 +493,7 @@ const createMemberWithSepa = async (req, res) => {
   }
 
   // Lidmaatschap activeren
-  const now          = new Date();
-  const contractEnd  = new Date(now);
+  const contractEnd  = new Date(startDateObj);
   contractEnd.setMonth(contractEnd.getMonth() + (membership.minimum_months || 1));
 
   // SEPA: subscription_id direct bekend; iDEAL: webhook vult het in na betaling
@@ -461,8 +505,8 @@ const createMemberWithSepa = async (req, res) => {
           VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?, 1, 'mollie', ?, ?)`,
     args: [
       userId, membership_id,
-      now.toISOString().split('T')[0],
-      now.toISOString().split('T')[0],
+      startDateStr,
+      startDateStr,
       contractEnd.toISOString().split('T')[0],
       membership.minimum_months || 1,
       membership.notice_period_months || 1,

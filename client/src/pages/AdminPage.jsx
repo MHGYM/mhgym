@@ -44,6 +44,8 @@ function AddMemberModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '', phone: '', iban: '', membership_id: '', payment_method: 'sepa',
     use_custom_amount: false, custom_amount: '',
+    start_date: new Date().toISOString().split('T')[0],
+    registration_fee: '15',
   })
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState('')
@@ -90,6 +92,7 @@ function AddMemberModal({ onClose, onCreated }) {
     }
     setLoading(true)
     try {
+      const usesIncasso = ['sepa', 'ideal'].includes(form.payment_method)
       const r = await api.post('/admin/members/create-sepa', {
         ...form,
         iban: form.payment_method === 'sepa' ? (ibanClean || undefined) : undefined,
@@ -97,6 +100,8 @@ function AddMemberModal({ onClose, onCreated }) {
         custom_amount: (usesCustomAmount && form.use_custom_amount && form.custom_amount)
           ? parseFloat(form.custom_amount)
           : undefined,
+        start_date:       usesIncasso ? form.start_date : undefined,
+        registration_fee: usesIncasso ? (parseFloat(form.registration_fee) || 0) : undefined,
       })
       setSuccess(r.data.message)
       setCheckoutUrl(r.data.checkout_url || null)
@@ -247,20 +252,85 @@ function AddMemberModal({ onClose, onCreated }) {
               </div>
             )}
 
+            {/* Startdatum + inschrijfkosten — alleen bij SEPA en iDEAL */}
+            {['sepa', 'ideal'].includes(form.payment_method) && (() => {
+              const selectedMem = memberships.find(m => String(m.id) === String(form.membership_id))
+              const monthlyPrice = (form.use_custom_amount && parseFloat(form.custom_amount) > 0)
+                ? parseFloat(form.custom_amount)
+                : (selectedMem ? Number(selectedMem.price_monthly) : 0)
+              let proRata = 0, firstTotal = 0
+              if (selectedMem && form.start_date) {
+                const d = new Date(form.start_date + 'T12:00:00')
+                const daysInMo = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+                const daysLeft = daysInMo - d.getDate() + 1
+                proRata = Math.ceil(daysLeft / daysInMo * monthlyPrice * 100) / 100
+                firstTotal = Math.round((proRata + (parseFloat(form.registration_fee) || 0)) * 100) / 100
+              }
+              const monthLabel = form.start_date
+                ? new Date(form.start_date + 'T12:00:00').toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })
+                : ''
+              return (
+                <>
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.75rem'}}>
+                    <div>
+                      <label className="input-label">Startdatum *</label>
+                      <input className="input" type="date" value={form.start_date} onChange={set('start_date')}/>
+                    </div>
+                    <div>
+                      <label className="input-label">Inschrijfkosten</label>
+                      <div style={{position:'relative'}}>
+                        <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',color:'var(--text-muted)',pointerEvents:'none'}}>€</span>
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={form.registration_fee}
+                          onChange={set('registration_fee')}
+                          placeholder="15.00"
+                          style={{paddingLeft:'1.75rem'}}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  {selectedMem && form.start_date && (
+                    <div style={{background:'var(--surface-2)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:'0.75rem',fontSize:'0.82rem'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+                        <span style={{color:'var(--text-muted)'}}>Inschrijfkosten</span>
+                        <span>{fmtMoney(parseFloat(form.registration_fee) || 0)}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                        <span style={{color:'var(--text-muted)'}}>Pro rato {monthLabel}</span>
+                        <span>{fmtMoney(proRata)}</span>
+                      </div>
+                      <div style={{borderTop:'1px solid var(--border)',paddingTop:6,display:'flex',justifyContent:'space-between',fontWeight:600}}>
+                        <span>Eerste betaling</span>
+                        <span>{fmtMoney(firstTotal)}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',color:'var(--text-muted)',marginTop:3}}>
+                        <span>Daarna maandelijks</span>
+                        <span>{fmtMoney(monthlyPrice)}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
+
             <div style={{background:'var(--surface-2)', borderRadius:'var(--r)', padding:'0.75rem', fontSize:'0.8rem', color:'var(--text-muted)', lineHeight:1.6}}>
               <strong style={{color:'var(--text-2)'}}>Wat er gebeurt:</strong><br/>
               {form.payment_method === 'sepa' && <>
                 1. Account aangemaakt met tijdelijk wachtwoord<br/>
-                2. Mollie klant aangemaakt<br/>
-                3. SEPA-mandaat aangemaakt op basis van getekend formulier<br/>
-                4. Maandelijkse incasso gestart (eerste afschrijving binnen 2–3 werkdagen)<br/>
+                2. Mollie klant + SEPA-mandaat aangemaakt<br/>
+                3. Eenmalige SEPA-afschrijving: inschrijfkosten + pro rato (binnen 2–3 werkdagen)<br/>
+                4. Maandelijkse incasso gestart per 1e van volgende maand<br/>
                 5. Welkomstmail verstuurd naar het lid
               </>}
               {form.payment_method === 'ideal' && <>
                 1. Account aangemaakt met tijdelijk wachtwoord<br/>
                 2. Mollie klant aangemaakt<br/>
-                3. iDEAL-betaallink gegenereerd — kopieer en stuur naar het lid<br/>
-                4. Na betaling: mandaat + maandelijkse incasso automatisch gestart<br/>
+                3. iDEAL-betaallink gegenereerd (inschrijfkosten + pro rato) — kopieer en stuur naar het lid<br/>
+                4. Na betaling: mandaat aangemaakt, maandelijkse incasso start 1e van volgende maand<br/>
                 5. Welkomstmail verstuurd naar het lid
               </>}
               {form.payment_method === 'jeugdfonds' && <>
