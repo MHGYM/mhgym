@@ -9,6 +9,12 @@ const path    = require('path');
 // eslint-disable-next-line no-extend-native
 BigInt.prototype.toJSON = function () { return Number(this); };
 
+// Normaliseer URL-env-variabelen — verwijder afsluitende punten en slashes
+// zodat https://app.mhgym.nl. niet in mail-links terechtkomt
+['FRONTEND_URL', 'APP_BASE_URL', 'MOLLIE_WEBHOOK_URL'].forEach(key => {
+  if (process.env[key]) process.env[key] = process.env[key].replace(/[./\s]+$/, '');
+});
+
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
