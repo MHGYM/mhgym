@@ -1,7 +1,8 @@
 const router = require('express').Router();
 const { authenticate, requireAdmin } = require('../middleware/auth');
-const ctrl = require('../controllers/adminController');
+const ctrl   = require('../controllers/adminController');
 const msgCtrl = require('../controllers/messagesController');
+const rkCtrl  = require('../controllers/rittenkaartController');
 
 router.use(authenticate, requireAdmin);
 
@@ -62,6 +63,16 @@ router.get('/test-email', async (req, res) => {
   if (error) res.json({ ok: false, error: error.message, details: error, from });
   else       res.json({ ok: true, messageId: data?.id, from, to });
 });
+
+// ── Rittenkaarten ────────────────────────────────────────────────────────────
+router.get('/rittenkaart-types',            rkCtrl.listTypes);
+router.post('/rittenkaart-types',           rkCtrl.createType);
+router.put('/rittenkaart-types/:id',        rkCtrl.updateType);
+router.delete('/rittenkaart-types/:id',     rkCtrl.deactivateType);
+router.get('/rittenkaarten',                rkCtrl.listRittenkaarten);
+router.post('/members/:id/rittenkaart',     rkCtrl.assignRittenkaart);
+router.post('/rittenkaarten/:id/correctie', rkCtrl.correctie);
+router.post('/bookings/:id/aanwezig',       rkCtrl.markAanwezig);
 
 // ── Berichten (chat) ────────────────────────────────────────────────────────
 router.get('/messages/unread-count',     msgCtrl.adminUnreadCount);

@@ -37,12 +37,23 @@ const createBooking = async (req, res) => {
   });
   const membership = membershipRes.rows[0];
 
+  let hasRittenkaart = false;
   if (!membership) {
-    return res.status(403).json({ error: 'Geen actief lidmaatschap. Sluit eerst een abonnement af.' });
+    const kaartRes = await db.execute({
+      sql: `SELECT id FROM rittenkaarten
+            WHERE user_id = ? AND status = 'active' AND ritten_resterend > 0
+              AND (vervaldatum IS NULL OR vervaldatum >= date('now'))
+            LIMIT 1`,
+      args: [req.user.id],
+    });
+    if (!kaartRes.rows[0]) {
+      return res.status(403).json({ error: 'Geen actief lidmaatschap of rittenkaart. Sluit eerst een abonnement af of koop een rittenkaart.' });
+    }
+    hasRittenkaart = true;
   }
 
-  // Controleer maandlimiet (−1 = onbeperkt voor VIP)
-  if (membership.max_bookings_per_month !== -1) {
+  // Controleer maandlimiet (−1 = onbeperkt voor VIP; niet van toepassing op rittenkaart)
+  if (!hasRittenkaart && membership.max_bookings_per_month !== -1) {
     const firstOfMonth = new Date();
     firstOfMonth.setDate(1);
     firstOfMonth.setHours(0, 0, 0, 0);

@@ -5,7 +5,7 @@ import {
   Search, Plus, Check, X, Euro, Clock, Edit2, Trash2,
   Bell, PauseCircle, PlayCircle, Pin, Crown, Link, ChevronLeft, RefreshCw,
   TrendingUp, Banknote, FileText, ChevronDown, ChevronUp,
-  MessageCircle, Send, ArrowLeft
+  MessageCircle, Send, ArrowLeft, Ticket
 } from 'lucide-react'
 import api from '../api'
 
@@ -1485,10 +1485,13 @@ function CommunityBeheer() {
 // ROOSTER
 // ════════════════════════════════════════════════════════════════════
 function RoosterSection() {
-  const [classes, setClasses] = useState([])
-  const [tab,     setTab]     = useState('upcoming')
-  const [showNew, setShowNew] = useState(false)
-  const [form,    setForm]    = useState({name:'',instructor:'Mohammed',category:'kickboksen-recreanten',date_time:'',duration_minutes:60,max_capacity:18,location:'Zaal A',repeat_type:'none',repeat_weeks:4})
+  const [classes,        setClasses]        = useState([])
+  const [tab,            setTab]            = useState('upcoming')
+  const [showNew,        setShowNew]        = useState(false)
+  const [form,           setForm]           = useState({name:'',instructor:'Mohammed',category:'kickboksen-recreanten',date_time:'',duration_minutes:60,max_capacity:18,location:'Zaal A',repeat_type:'none',repeat_weeks:4})
+  const [expandedClassId,setExpandedClassId]= useState(null)
+  const [classBookings,  setClassBookings]  = useState([])
+  const [loadingBookings,setLoadingBookings]= useState(false)
 
   useEffect(() => { api.get('/admin/classes').then(r => setClasses(r.data.classes)).catch(() => {}) }, [])
 
@@ -1505,7 +1508,6 @@ function RoosterSection() {
       if (r.data.class) {
         setClasses(c => [r.data.class, ...c])
       } else {
-        // recurring — reload full list so all occurrences appear
         const reload = await api.get('/admin/classes')
         setClasses(reload.data.classes)
         alert(r.data.message || `${r.data.count} lessen aangemaakt`)
@@ -1517,6 +1519,24 @@ function RoosterSection() {
     if (!confirm('Les annuleren?')) return
     await api.delete(`/admin/classes/${id}`)
     setClasses(c => c.map(x => x.id===id?{...x,status:'cancelled'}:x))
+  }
+
+  const toggleClassDetail = async (classId) => {
+    if (expandedClassId === classId) { setExpandedClassId(null); setClassBookings([]); return }
+    setExpandedClassId(classId)
+    setLoadingBookings(true)
+    try {
+      const r = await api.get(`/admin/classes/${classId}/bookings`)
+      setClassBookings(r.data.bookings)
+    } catch(_) {}
+    setLoadingBookings(false)
+  }
+
+  const doMarkAanwezig = async (bookingId) => {
+    try {
+      await api.post(`/admin/bookings/${bookingId}/aanwezig`)
+      setClassBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: 'attended' } : b))
+    } catch(e) { alert(e.response?.data?.error || 'Fout') }
   }
 
   return (
@@ -1539,7 +1559,6 @@ function RoosterSection() {
             <div><label className="input-label">Max deelnemers</label><input className="input" type="number" value={form.max_capacity} onChange={e=>setForm({...form,max_capacity:parseInt(e.target.value)})}/></div>
             <div><label className="input-label">Locatie</label><input className="input" value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></div>
           </div>
-          {/* Repeat options */}
           <div style={{marginTop:'0.75rem',padding:'0.6rem 0.75rem',background:'var(--surface-3,rgba(255,255,255,0.04))',borderRadius:'var(--r)',display:'flex',alignItems:'center',gap:'1rem',flexWrap:'wrap'}}>
             <label className="input-label" style={{margin:0,whiteSpace:'nowrap'}}>Herhaling:</label>
             {[['none','Eenmalig'],['weekly','Wekelijks'],['biweekly','2-wekelijks']].map(([val,lbl]) => (
@@ -1567,14 +1586,41 @@ function RoosterSection() {
         </div>
       )}
       {(tab==='upcoming'?upcoming:past).map(c => (
-        <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
-          <div>
-            <div style={{fontWeight:600,fontSize:'0.875rem'}}>{c.name}</div>
-            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(c.date_time)} · {c.instructor} · {c.confirmed_bookings}/{c.max_capacity}</div>
+        <div key={c.id} style={{marginBottom:'0.4rem'}}>
+          <div
+            style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:expandedClassId===c.id?'var(--r) var(--r) 0 0':'var(--r)',cursor:'pointer'}}
+            onClick={() => toggleClassDetail(c.id)}
+          >
+            <div>
+              <div style={{fontWeight:600,fontSize:'0.875rem'}}>{c.name}</div>
+              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(c.date_time)} · {c.instructor} · {c.confirmed_bookings}/{c.max_capacity}</div>
+            </div>
+            <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+              {expandedClassId===c.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+              {c.status==='scheduled' ? (
+                <button className="btn btn-danger btn-sm" onClick={e=>{e.stopPropagation();cancelClass(c.id)}}><X size={13}/></button>
+              ) : <span style={{fontSize:'0.75rem',color:'var(--error)'}}>Geannuleerd</span>}
+            </div>
           </div>
-          {c.status==='scheduled' ? (
-            <button className="btn btn-danger btn-sm" onClick={() => cancelClass(c.id)}><X size={13}/></button>
-          ) : <span style={{fontSize:'0.75rem',color:'var(--error)'}}>Geannuleerd</span>}
+          {expandedClassId===c.id && (
+            <div style={{background:'var(--surface-3,rgba(255,255,255,0.04))',borderRadius:'0 0 var(--r) var(--r)',padding:'0.5rem 0.75rem'}}>
+              {loadingBookings && <p style={{color:'var(--text-muted)',fontSize:'0.8rem',margin:0}}>Laden…</p>}
+              {!loadingBookings && classBookings.length===0 && <p style={{color:'var(--text-muted)',fontSize:'0.8rem',margin:0}}>Geen boekingen</p>}
+              {classBookings.map(b => (
+                <div key={b.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.3rem 0',borderBottom:'1px solid var(--border)'}}>
+                  <span style={{fontWeight:500,fontSize:'0.85rem'}}>{b.first_name} {b.last_name}</span>
+                  <span style={{fontSize:'0.75rem',color:'var(--text-muted)',flex:1,marginLeft:'0.5rem'}}>{b.email}</span>
+                  {b.status==='attended' ? (
+                    <span style={{padding:'2px 10px',borderRadius:10,background:'rgba(34,197,94,0.15)',color:'var(--success)',fontSize:'0.72rem',fontWeight:700}}>✓ Aanwezig</span>
+                  ) : (
+                    <button className="btn btn-sm" style={{padding:'3px 10px',background:'rgba(34,197,94,0.1)',color:'var(--success)',fontSize:'0.75rem',border:'1px solid rgba(34,197,94,0.3)'}} onClick={()=>doMarkAanwezig(b.id)}>
+                      Aanwezig ✓
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -2577,6 +2623,233 @@ function BerichtenSection() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// RITTENKAARTEN
+// ════════════════════════════════════════════════════════════════════
+function RittenkaartenSection() {
+  const [tab,          setTab]          = useState('overzicht')
+  const [types,        setTypes]        = useState([])
+  const [kaarten,      setKaarten]      = useState([])
+  const [members,      setMembers]      = useState([])
+  const [showTypeForm, setShowTypeForm] = useState(false)
+  const [editType,     setEditType]     = useState(null)
+  const [typeForm,     setTypeForm]     = useState({naam:'',ritten:'',prijs:'',geldigheid_dagen:''})
+  const [showAssign,   setShowAssign]   = useState(false)
+  const [assignForm,   setAssignForm]   = useState({user_id:'',type_id:'',betaalmethode:'contant',betaald:false,betaaldatum:new Date().toISOString().split('T')[0]})
+
+  const loadTypes   = () => api.get('/admin/rittenkaart-types').then(r => setTypes(r.data.types)).catch(()=>{})
+  const loadKaarten = () => api.get('/admin/rittenkaarten').then(r => setKaarten(r.data.kaarten)).catch(()=>{})
+  const loadMembers = () => api.get('/admin/members').then(r => setMembers(r.data.members)).catch(()=>{})
+
+  useEffect(() => { loadTypes(); loadKaarten(); loadMembers() }, [])
+
+  const activeTypes = types.filter(t => t.actief)
+
+  const saveType = async () => {
+    if (!typeForm.naam || !typeForm.ritten || !typeForm.prijs) return alert('Naam, ritten en prijs zijn verplicht.')
+    try {
+      if (editType) await api.put(`/admin/rittenkaart-types/${editType.id}`, typeForm)
+      else          await api.post('/admin/rittenkaart-types', typeForm)
+      setShowTypeForm(false); setEditType(null); setTypeForm({naam:'',ritten:'',prijs:'',geldigheid_dagen:''})
+      loadTypes()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const deactivateType = async id => {
+    if (!confirm('Type deactiveren?')) return
+    await api.delete(`/admin/rittenkaart-types/${id}`).catch(()=>{})
+    loadTypes()
+  }
+
+  const doAssign = async () => {
+    if (!assignForm.user_id || !assignForm.type_id) return alert('Selecteer een lid en een type.')
+    try {
+      await api.post(`/admin/members/${assignForm.user_id}/rittenkaart`, {
+        type_id: parseInt(assignForm.type_id),
+        betaalmethode: assignForm.betaalmethode,
+        betaald: assignForm.betaald,
+        betaaldatum: assignForm.betaald ? assignForm.betaaldatum : null,
+      })
+      setShowAssign(false)
+      loadKaarten()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const doCorrectie = async (id, delta) => {
+    try {
+      const r = await api.post(`/admin/rittenkaarten/${id}/correctie`, { delta, reden: 'handmatige_correctie' })
+      alert(r.data.message)
+      loadKaarten()
+    } catch(e) { alert(e.response?.data?.error||'Fout') }
+  }
+
+  const bijnaOp = kaarten.filter(k => k.status==='active' && Number(k.ritten_resterend) <= 2)
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.25rem'}}>
+        <div className="tab-bar">
+          <button className={`tab-btn${tab==='overzicht'?' active':''}`} onClick={()=>setTab('overzicht')}>
+            Kaarten ({kaarten.filter(k=>k.status==='active').length})
+          </button>
+          <button className={`tab-btn${tab==='types'?' active':''}`} onClick={()=>setTab('types')}>
+            Types ({activeTypes.length})
+          </button>
+        </div>
+        {tab==='overzicht' && (
+          <button className="btn btn-primary btn-sm" onClick={()=>setShowAssign(s=>!s)}>
+            {showAssign?<X size={13}/>:<Plus size={13}/>} Kaart toekennen
+          </button>
+        )}
+        {tab==='types' && (
+          <button className="btn btn-primary btn-sm" onClick={()=>{setShowTypeForm(s=>!s);setEditType(null);setTypeForm({naam:'',ritten:'',prijs:'',geldigheid_dagen:''})}}>
+            {showTypeForm?<X size={13}/>:<Plus size={13}/>} Nieuw type
+          </button>
+        )}
+      </div>
+
+      {/* ── Overzicht tab ── */}
+      {tab==='overzicht' && (
+        <div>
+          {showAssign && (
+            <div className="card" style={{marginBottom:'1rem'}}>
+              <h3 style={{marginBottom:'0.75rem',fontSize:'0.95rem'}}>Rittenkaart toekennen</h3>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.75rem'}}>
+                <div>
+                  <label className="input-label">Lid *</label>
+                  <select className="input" value={assignForm.user_id} onChange={e=>setAssignForm({...assignForm,user_id:e.target.value})}>
+                    <option value="">— Selecteer lid —</option>
+                    {members.map(m=><option key={m.id} value={m.id}>{m.first_name} {m.last_name} ({m.email})</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Type *</label>
+                  <select className="input" value={assignForm.type_id} onChange={e=>setAssignForm({...assignForm,type_id:e.target.value})}>
+                    <option value="">— Selecteer type —</option>
+                    {activeTypes.map(t=><option key={t.id} value={t.id}>{t.naam} — €{Number(t.prijs).toFixed(2)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Betaalmethode</label>
+                  <select className="input" value={assignForm.betaalmethode} onChange={e=>setAssignForm({...assignForm,betaalmethode:e.target.value})}>
+                    <option value="contant">Contant</option>
+                    <option value="pin">Pin</option>
+                    <option value="anders">Anders</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Betaaldatum</label>
+                  <input className="input" type="date" value={assignForm.betaaldatum} onChange={e=>setAssignForm({...assignForm,betaaldatum:e.target.value})}/>
+                </div>
+                <div style={{gridColumn:'span 2'}}>
+                  <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.875rem',cursor:'pointer'}}>
+                    <input type="checkbox" checked={assignForm.betaald} onChange={e=>setAssignForm({...assignForm,betaald:e.target.checked})}/>
+                    Betaling ontvangen
+                  </label>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
+                <button className="btn btn-primary btn-sm" onClick={doAssign}><Check size={13}/> Toekennen</button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>setShowAssign(false)}><X size={13}/> Annuleren</button>
+              </div>
+            </div>
+          )}
+
+          {bijnaOp.length > 0 && (
+            <div style={{background:'rgba(245,194,0,0.1)',border:'1px solid rgba(245,194,0,0.5)',borderRadius:'var(--r)',padding:'0.6rem 0.75rem',marginBottom:'1rem',fontSize:'0.82rem',color:'#f5c200'}}>
+              ⚠ {bijnaOp.length} lid{bijnaOp.length>1?'en hebben':'heeft'} nog maar ≤2 ritten resterend
+            </div>
+          )}
+
+          {kaarten.length===0 && <p style={{color:'var(--text-muted)'}}>Geen rittenkaarten gevonden.</p>}
+          {kaarten.map(k => (
+            <div key={k.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:'0.875rem'}}>{k.first_name} {k.last_name}</div>
+                <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>
+                  {k.type_naam} · {fmtDate(k.created_at)} · {k.betaalmethode}
+                  {k.vervaldatum && <span style={{marginLeft:6}}>· geldig t/m {fmtDate(k.vervaldatum)}</span>}
+                </div>
+                {!k.betaald && <span style={{fontSize:'0.72rem',color:'var(--error)',fontWeight:600}}>⚠ Onbetaald</span>}
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontWeight:800,fontSize:'1.1rem',color:Number(k.ritten_resterend)<=2&&k.status==='active'?'#f5c200':k.status==='depleted'?'var(--error)':'var(--success)'}}>
+                    {k.ritten_resterend}<span style={{fontSize:'0.75rem',fontWeight:400,color:'var(--text-muted)'}}>/{k.ritten_totaal}</span>
+                  </div>
+                  <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>ritten</div>
+                </div>
+                <div style={{display:'flex',gap:'0.25rem'}}>
+                  <button className="btn btn-sm" style={{padding:'4px 8px',background:'rgba(34,197,94,0.15)',color:'var(--success)',border:'1px solid rgba(34,197,94,0.3)'}} onClick={()=>doCorrectie(k.id,1)}>+1</button>
+                  <button className="btn btn-sm" style={{padding:'4px 8px',background:'rgba(239,68,68,0.12)',color:'var(--error)',border:'1px solid rgba(239,68,68,0.25)'}} onClick={()=>doCorrectie(k.id,-1)} disabled={Number(k.ritten_resterend)<=0}>−1</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Types tab ── */}
+      {tab==='types' && (
+        <div>
+          {showTypeForm && (
+            <div className="card" style={{marginBottom:'1rem'}}>
+              <h3 style={{marginBottom:'0.75rem',fontSize:'0.95rem'}}>{editType?'Type bewerken':'Nieuw type'}</h3>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.75rem'}}>
+                <div style={{gridColumn:'span 2'}}>
+                  <label className="input-label">Naam *</label>
+                  <input className="input" value={typeForm.naam} onChange={e=>setTypeForm({...typeForm,naam:e.target.value})} placeholder="bijv. 10 ritten"/>
+                </div>
+                <div>
+                  <label className="input-label">Aantal ritten *</label>
+                  <input className="input" type="number" min="1" value={typeForm.ritten} onChange={e=>setTypeForm({...typeForm,ritten:e.target.value})} placeholder="10"/>
+                </div>
+                <div>
+                  <label className="input-label">Totaalprijs (€) *</label>
+                  <input className="input" type="number" step="0.01" min="0" value={typeForm.prijs} onChange={e=>setTypeForm({...typeForm,prijs:e.target.value})} placeholder="160.00"/>
+                </div>
+                <div style={{gridColumn:'span 2'}}>
+                  <label className="input-label">Geldigheid (dagen, leeg = onbeperkt)</label>
+                  <input className="input" type="number" min="1" value={typeForm.geldigheid_dagen} onChange={e=>setTypeForm({...typeForm,geldigheid_dagen:e.target.value})} placeholder="365"/>
+                </div>
+              </div>
+              {typeForm.ritten && typeForm.prijs && (
+                <p style={{fontSize:'0.78rem',color:'var(--text-muted)',marginTop:'0.5rem'}}>
+                  Prijs per rit: €{(parseFloat(typeForm.prijs)/parseInt(typeForm.ritten)).toFixed(2)}
+                </p>
+              )}
+              <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
+                <button className="btn btn-primary btn-sm" onClick={saveType}><Check size={13}/> {editType?'Opslaan':'Aanmaken'}</button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>{setShowTypeForm(false);setEditType(null)}}><X size={13}/> Annuleren</button>
+              </div>
+            </div>
+          )}
+
+          {types.length===0 && <p style={{color:'var(--text-muted)'}}>Geen types gevonden.</p>}
+          {types.map(t => (
+            <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem',opacity:t.actief?1:0.5}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:'0.875rem'}}>{t.naam}</div>
+                <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>
+                  {t.ritten} ritten · {fmtMoney(t.prijs)} · €{(t.prijs/t.ritten).toFixed(2)}/rit
+                  {t.geldigheid_dagen && <span style={{marginLeft:6}}>· geldig {t.geldigheid_dagen}d</span>}
+                  {!t.actief && <span style={{marginLeft:6,color:'var(--error)'}}>· inactief</span>}
+                </div>
+              </div>
+              <div style={{display:'flex',gap:'0.5rem'}}>
+                <button className="btn btn-ghost btn-sm" onClick={()=>{setEditType(t);setTypeForm({naam:t.naam,ritten:String(t.ritten),prijs:String(t.prijs),geldigheid_dagen:t.geldigheid_dagen?String(t.geldigheid_dagen):''});setShowTypeForm(true)}}>
+                  <Edit2 size={13}/>
+                </button>
+                {t.actief && <button className="btn btn-danger btn-sm" onClick={()=>deactivateType(t.id)}><Trash2 size={13}/></button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
 // HOOFD COMPONENT
 // ════════════════════════════════════════════════════════════════════
 const MENU = [
@@ -2588,8 +2861,9 @@ const MENU = [
   { key:'vt',         label:'Vrij Trainen',  Icon:Calendar        },
   { key:'betalingen', label:'Betalingen',    Icon:CreditCard      },
   { key:'community',  label:'Community',     Icon:Users2          },
-  { key:'rooster',    label:'Rooster',       Icon:Calendar        },
-  { key:'berichten',  label:'Berichten',     Icon:MessageCircle   },
+  { key:'rooster',        label:'Rooster',        Icon:Calendar      },
+  { key:'rittenkaarten', label:'Rittenkaarten', Icon:Ticket        },
+  { key:'berichten',     label:'Berichten',      Icon:MessageCircle },
 ]
 
 export default function AdminPage() {
@@ -2633,8 +2907,9 @@ export default function AdminPage() {
         {section==='inkomen'    && <InkomenSection/>}
         {section==='betalingen' && <BetalingenCombinedSection/>}
         {section==='community'  && <CommunityBeheer/>}
-        {section==='rooster'    && <RoosterSection/>}
-        {section==='berichten'  && <BerichtenSection/>}
+        {section==='rooster'       && <RoosterSection/>}
+        {section==='rittenkaarten' && <RittenkaartenSection/>}
+        {section==='berichten'     && <BerichtenSection/>}
       </main>
     </div>
   )

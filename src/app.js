@@ -16,6 +16,9 @@ BigInt.prototype.toJSON = function () { return Number(this); };
 });
 
 const { errorHandler } = require('./middleware/errorHandler');
+const { initDb }       = require('./db/init');
+
+initDb().catch(e => console.error('[DB init]', e));
 
 const app = express();
 
@@ -54,8 +57,9 @@ app.use('/api/vt',          require('./routes/vrijTrainen'));
 app.use('/api/community',   require('./routes/community'));
 app.use('/api/cash',        require('./routes/cash'));
 app.use('/api/chat',        require('./routes/chat'));
-app.use('/api/messages',    require('./routes/messages'));
-app.use('/api/setup',       require('./routes/setup'));
+app.use('/api/messages',      require('./routes/messages'));
+app.use('/api/setup',         require('./routes/setup'));
+app.use('/api/rittenkaarten', require('./routes/rittenkaarten'));
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() }));

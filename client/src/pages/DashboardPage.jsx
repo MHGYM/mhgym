@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, CreditCard, TrendingUp, Clock, MapPin, User, ArrowRight, Dumbbell } from 'lucide-react'
+import { Calendar, CreditCard, TrendingUp, Clock, MapPin, User, ArrowRight, Dumbbell, Ticket } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
 
@@ -14,17 +14,19 @@ function formatTime(dateStr) {
 
 export default function DashboardPage() {
   const { user, membership, refreshUser } = useAuth()
-  const [bookings, setBookings] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [bookings,    setBookings]    = useState([])
+  const [rittenkaart, setRittenkaart] = useState(null)
+  const [loading,     setLoading]     = useState(true)
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [, bookingsRes] = await Promise.all([
+        const [meData, bookingsRes] = await Promise.all([
           refreshUser(),
           api.get('/bookings'),
         ])
         setBookings(bookingsRes.data.bookings)
+        setRittenkaart(meData?.rittenkaart || null)
       } catch (e) {
         console.error(e)
       } finally {
@@ -77,7 +79,7 @@ export default function DashboardPage() {
       </div>
 
       {/* No membership banner */}
-      {!membership && (
+      {!membership && !rittenkaart && (
         <div className="no-membership-banner">
           <div>
             <h3>Nog geen actief lidmaatschap</h3>
@@ -125,6 +127,24 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+
+        {/* Rittenkaart */}
+        {rittenkaart && (
+          <div className="stat-card" style={Number(rittenkaart.ritten_resterend) <= 2 ? {borderTop:'2px solid #f5c200'} : {}}>
+            <Ticket size={20} className="stat-icon" />
+            <span className="stat-label">Rittenkaart</span>
+            <span className="stat-value" style={{ fontSize: '1.4rem', color: Number(rittenkaart.ritten_resterend) <= 2 ? '#f5c200' : '' }}>
+              {rittenkaart.ritten_resterend}
+              <span style={{ fontSize: '1rem', color: 'var(--text-muted)', fontWeight: 500 }}>/{rittenkaart.ritten_totaal}</span>
+            </span>
+            <span className="stat-sub">
+              {Number(rittenkaart.ritten_resterend) <= 2
+                ? '⚠ Bijna op'
+                : rittenkaart.type_naam}
+              {rittenkaart.vervaldatum && ` · t/m ${new Date(rittenkaart.vervaldatum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}`}
+            </span>
+          </div>
+        )}
 
         {/* Upcoming */}
         <div className="stat-card">

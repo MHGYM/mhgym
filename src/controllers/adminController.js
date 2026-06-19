@@ -724,7 +724,7 @@ const adminGetClassBookings = async (req, res) => {
     sql: `SELECT b.id, b.status, b.booked_at, u.first_name, u.last_name, u.email
           FROM bookings b
           JOIN users u ON u.id = b.user_id
-          WHERE b.class_id = ? AND b.status = 'confirmed'
+          WHERE b.class_id = ? AND b.status IN ('confirmed', 'attended')
           ORDER BY b.booked_at`,
     args: [req.params.id],
   });

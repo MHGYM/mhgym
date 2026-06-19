@@ -86,7 +86,19 @@ const me = async (req, res) => {
     membershipWithUsage = { ...membership, bookings_used_this_month: Number(usedRes.rows[0].cnt) };
   }
 
-  res.json({ user: fullUser, membership: membershipWithUsage });
+  // Actieve rittenkaart (meest recent niet-verlopen met saldo)
+  const kaartRes = await db.execute({
+    sql: `SELECT rk.*, t.naam AS type_naam
+          FROM rittenkaarten rk
+          JOIN rittenkaart_types t ON t.id = rk.type_id
+          WHERE rk.user_id = ? AND rk.status = 'active' AND rk.ritten_resterend > 0
+            AND (rk.vervaldatum IS NULL OR rk.vervaldatum >= date('now'))
+          ORDER BY rk.created_at ASC LIMIT 1`,
+    args: [req.user.id],
+  });
+  const rittenkaart = kaartRes.rows[0] || null;
+
+  res.json({ user: fullUser, membership: membershipWithUsage, rittenkaart });
 };
 
 // PUT /api/auth/profile  — inclusief nieuwe velden
