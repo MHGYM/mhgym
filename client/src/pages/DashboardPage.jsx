@@ -78,6 +78,18 @@ export default function DashboardPage() {
         </Link>
       </div>
 
+      {/* Rittenkaart info balk */}
+      {rittenkaart && (
+        <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', padding:'0.6rem 0.9rem', background:'var(--surface-2)', borderRadius:'var(--r)', marginBottom:'1rem', fontSize:'0.875rem', borderLeft: Number(rittenkaart.ritten_resterend) <= 2 ? '3px solid #f5c200' : '3px solid var(--success)' }}>
+          <Ticket size={15} style={{ color: Number(rittenkaart.ritten_resterend) <= 2 ? '#f5c200' : 'var(--success)', flexShrink:0 }}/>
+          <span>
+            <strong>Rittenkaart:</strong> {rittenkaart.ritten_resterend} van {rittenkaart.ritten_totaal} ritten resterend
+            {rittenkaart.vervaldatum && ` · geldig t/m ${new Date(rittenkaart.vervaldatum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long' })}`}
+            {Number(rittenkaart.ritten_resterend) <= 2 && <span style={{ color:'#f5c200', marginLeft:6 }}>⚠ Bijna op</span>}
+          </span>
+        </div>
+      )}
+
       {/* No membership banner */}
       {!membership && !rittenkaart && (
         <div className="no-membership-banner">
@@ -127,24 +139,6 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-
-        {/* Rittenkaart */}
-        {rittenkaart && (
-          <div className="stat-card" style={Number(rittenkaart.ritten_resterend) <= 2 ? {borderTop:'2px solid #f5c200'} : {}}>
-            <Ticket size={20} className="stat-icon" />
-            <span className="stat-label">Rittenkaart</span>
-            <span className="stat-value" style={{ fontSize: '1.4rem', color: Number(rittenkaart.ritten_resterend) <= 2 ? '#f5c200' : '' }}>
-              {rittenkaart.ritten_resterend}
-              <span style={{ fontSize: '1rem', color: 'var(--text-muted)', fontWeight: 500 }}>/{rittenkaart.ritten_totaal}</span>
-            </span>
-            <span className="stat-sub">
-              {Number(rittenkaart.ritten_resterend) <= 2
-                ? '⚠ Bijna op'
-                : rittenkaart.type_naam}
-              {rittenkaart.vervaldatum && ` · t/m ${new Date(rittenkaart.vervaldatum).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}`}
-            </span>
-          </div>
-        )}
 
         {/* Upcoming */}
         <div className="stat-card">

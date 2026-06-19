@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { deductRitForBooking, restoreRitForBooking } = require('./rittenkaartController');
 
 // GET /api/bookings  — eigen boekingen van ingelogde user
 const myBookings = async (req, res) => {
@@ -86,6 +87,10 @@ const createBooking = async (req, res) => {
   ], 'write');
 
   const bookingId = batchResult[0].lastInsertRowid;
+
+  // Rit aftrekken bij rittenkaart-houders zonder abonnement (fire-and-forget)
+  deductRitForBooking(req.user.id, Number(bookingId)).catch(() => {});
+
   const bookingRes = await db.execute({
     sql: `SELECT b.*, c.name AS class_name, c.instructor, c.date_time, c.location
           FROM bookings b JOIN classes c ON c.id = b.class_id WHERE b.id = ?`,
@@ -125,6 +130,9 @@ const cancelBooking = async (req, res) => {
       args: [booking.class_id],
     },
   ], 'write');
+
+  // Rit terugzetten als er eerder één was afgetrokken voor deze boeking
+  restoreRitForBooking(booking.id).catch(() => {});
 
   res.json({ message: 'Boeking geannuleerd.' });
 };

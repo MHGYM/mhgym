@@ -29,7 +29,7 @@ const updateType = async (req, res) => {
   res.json({ type: updated.rows[0] });
 };
 
-// DELETE /api/admin/rittenkaart-types/:id  — deactivate, do not hard-delete
+// DELETE /api/admin/rittenkaart-types/:id  — deactivate, never hard-delete
 const deactivateType = async (req, res) => {
   await db.execute({
     sql: `UPDATE rittenkaart_types SET actief=0, updated_at=datetime('now') WHERE id=?`,
@@ -47,6 +47,19 @@ const listRittenkaarten = async (req, res) => {
     JOIN rittenkaart_types t ON t.id = rk.type_id
     ORDER BY rk.created_at DESC
   `);
+  res.json({ kaarten: result.rows });
+};
+
+// GET /api/admin/members/:id/rittenkaarten
+const getMemberRittenkaarten = async (req, res) => {
+  const result = await db.execute({
+    sql: `SELECT rk.*, t.naam AS type_naam
+          FROM rittenkaarten rk
+          JOIN rittenkaart_types t ON t.id = rk.type_id
+          WHERE rk.user_id = ?
+          ORDER BY rk.created_at DESC`,
+    args: [req.params.id],
+  });
   res.json({ kaarten: result.rows });
 };
 
@@ -106,54 +119,6 @@ const correctie = async (req, res) => {
   res.json({ message: `Saldo bijgewerkt: ${delta > 0 ? '+' : ''}${delta} rit(ten). Nieuw saldo: ${nieuwSaldo}.` });
 };
 
-// POST /api/admin/bookings/:id/aanwezig  — markeer aanwezig + rit aftrekken als geen abonnement
-const markAanwezig = async (req, res) => {
-  const bookingRes = await db.execute({ sql: 'SELECT * FROM bookings WHERE id = ?', args: [req.params.id] });
-  const booking = bookingRes.rows[0];
-  if (!booking) return res.status(404).json({ error: 'Boeking niet gevonden.' });
-  if (booking.status === 'attended') return res.status(400).json({ error: 'Al gemarkeerd als aanwezig.' });
-
-  await db.execute({ sql: `UPDATE bookings SET status = 'attended' WHERE id = ?`, args: [booking.id] });
-
-  // Rit alleen aftrekken als user geen actief abonnement heeft
-  const memberRes = await db.execute({
-    sql: `SELECT id FROM user_memberships
-          WHERE user_id = ? AND (status = 'active' OR status = 'cancelling')
-            AND (cancels_at IS NULL OR cancels_at >= date('now'))
-          LIMIT 1`,
-    args: [booking.user_id],
-  });
-
-  let rit_afgeboekt = false;
-  if (!memberRes.rows[0]) {
-    const kaartRes = await db.execute({
-      sql: `SELECT * FROM rittenkaarten
-            WHERE user_id = ? AND status = 'active' AND ritten_resterend > 0
-              AND (vervaldatum IS NULL OR vervaldatum >= date('now'))
-            ORDER BY created_at ASC LIMIT 1`,
-      args: [booking.user_id],
-    });
-    const kaart = kaartRes.rows[0];
-    if (kaart) {
-      const nieuwSaldo = Number(kaart.ritten_resterend) - 1;
-      const newStatus  = nieuwSaldo === 0 ? 'depleted' : 'active';
-      await db.batch([
-        {
-          sql: `UPDATE rittenkaarten SET ritten_resterend=?, status=?, updated_at=datetime('now') WHERE id=?`,
-          args: [nieuwSaldo, newStatus, kaart.id],
-        },
-        {
-          sql: `INSERT INTO rittenkaart_transacties (rittenkaart_id, booking_id, delta, reden, aangemaakt_door) VALUES (?, ?, -1, 'aanwezigheid', ?)`,
-          args: [kaart.id, booking.id, req.user.id],
-        },
-      ], 'write');
-      rit_afgeboekt = true;
-    }
-  }
-
-  res.json({ message: 'Aanwezigheid geregistreerd.', rit_afgeboekt });
-};
-
 // GET /api/rittenkaarten/mine  (leden)
 const myRittenkaarten = async (req, res) => {
   const result = await db.execute({
@@ -167,8 +132,82 @@ const myRittenkaarten = async (req, res) => {
   res.json({ kaarten: result.rows });
 };
 
+// ── Helpers (exported for use in booking flows) ───────────────────────────────
+
+// Deduct 1 rit at booking time if user has no active membership.
+// Returns true if a rit was deducted.
+async function deductRitForBooking(userId, bookingId) {
+  const memberRes = await db.execute({
+    sql: `SELECT id FROM user_memberships
+          WHERE user_id = ? AND (status = 'active' OR status = 'cancelling')
+            AND (cancels_at IS NULL OR cancels_at >= date('now'))
+          LIMIT 1`,
+    args: [userId],
+  });
+  if (memberRes.rows[0]) return false; // Has active membership, no rit needed
+
+  const kaartRes = await db.execute({
+    sql: `SELECT * FROM rittenkaarten
+          WHERE user_id = ? AND status = 'active' AND ritten_resterend > 0
+            AND (vervaldatum IS NULL OR vervaldatum >= date('now'))
+          ORDER BY created_at ASC LIMIT 1`,
+    args: [userId],
+  });
+  const kaart = kaartRes.rows[0];
+  if (!kaart) return false;
+
+  const nieuwSaldo = Number(kaart.ritten_resterend) - 1;
+  const newStatus  = nieuwSaldo === 0 ? 'depleted' : 'active';
+
+  await db.batch([
+    {
+      sql: `UPDATE rittenkaarten SET ritten_resterend=?, status=?, updated_at=datetime('now') WHERE id=?`,
+      args: [nieuwSaldo, newStatus, kaart.id],
+    },
+    {
+      sql: `INSERT INTO rittenkaart_transacties (rittenkaart_id, booking_id, delta, reden) VALUES (?, ?, -1, 'boeking')`,
+      args: [kaart.id, bookingId],
+    },
+  ], 'write');
+
+  return true;
+}
+
+// Restore 1 rit when a booking is cancelled (only if a rit was previously deducted for it).
+async function restoreRitForBooking(bookingId) {
+  const transRes = await db.execute({
+    sql: `SELECT * FROM rittenkaart_transacties
+          WHERE booking_id = ? AND delta = -1
+          ORDER BY created_at DESC LIMIT 1`,
+    args: [bookingId],
+  });
+  const trans = transRes.rows[0];
+  if (!trans) return false;
+
+  const kaartRes = await db.execute({ sql: 'SELECT * FROM rittenkaarten WHERE id = ?', args: [trans.rittenkaart_id] });
+  const kaart = kaartRes.rows[0];
+  if (!kaart) return false;
+
+  const nieuwSaldo = Number(kaart.ritten_resterend) + 1;
+
+  await db.batch([
+    {
+      sql: `UPDATE rittenkaarten SET ritten_resterend=?, status='active', updated_at=datetime('now') WHERE id=?`,
+      args: [nieuwSaldo, kaart.id],
+    },
+    {
+      sql: `INSERT INTO rittenkaart_transacties (rittenkaart_id, booking_id, delta, reden) VALUES (?, ?, 1, 'boeking_geannuleerd')`,
+      args: [kaart.id, bookingId],
+    },
+  ], 'write');
+
+  return true;
+}
+
 module.exports = {
   listTypes, createType, updateType, deactivateType,
-  listRittenkaarten, assignRittenkaart, correctie,
-  markAanwezig, myRittenkaarten,
+  listRittenkaarten, getMemberRittenkaarten,
+  assignRittenkaart, correctie,
+  myRittenkaarten,
+  deductRitForBooking, restoreRitForBooking,
 };

@@ -458,6 +458,10 @@ function LedenSection() {
   const [isCash,           setIsCash]           = useState(false)
   const [editCustomAmount, setEditCustomAmount] = useState(false)
   const [customAmountVal,  setCustomAmountVal]  = useState('')
+  const [memberRittenkaarten, setMemberRittenkaarten] = useState([])
+  const [showRkAssign,        setShowRkAssign]        = useState(false)
+  const [rkTypes,             setRkTypes]             = useState([])
+  const [rkForm,              setRkForm]              = useState({type_id:'',betaalmethode:'contant',betaald:false,betaaldatum:new Date().toISOString().split('T')[0]})
   const timerRef = useRef(null)
 
   useEffect(() => { loadMembers() }, [])
@@ -476,12 +480,14 @@ function LedenSection() {
   }
 
   const openMember = async id => {
-    setSelected(id); setLoadingDetail(true); setDetail(null)
+    setSelected(id); setLoadingDetail(true); setDetail(null); setShowRkAssign(false); setMemberRittenkaarten([])
     const r = await api.get(`/admin/members/${id}`)
     setDetail(r.data)
     setNotes(r.data.member.admin_notes || '')
     setIsCash(!!r.data.member.is_cash_payer)
     setLoadingDetail(false)
+    api.get(`/admin/members/${id}/rittenkaarten`).then(rk => setMemberRittenkaarten(rk.data.kaarten)).catch(()=>{})
+    api.get('/admin/rittenkaart-types').then(rt => setRkTypes(rt.data.types.filter(t => t.actief))).catch(()=>{})
   }
 
   const selectedMtype = MEMBERSHIP_TYPES.find(t => t.key === assignType)
@@ -542,6 +548,29 @@ function LedenSection() {
     if (!confirm('Lid definitief verwijderen?')) return
     await api.delete(`/admin/members/${id}`)
     setSelected(null); setDetail(null); loadMembers(search)
+  }
+
+  const doAssignRk = async () => {
+    if (!rkForm.type_id) return alert('Selecteer een type.')
+    try {
+      await api.post(`/admin/members/${selected}/rittenkaart`, {
+        type_id: parseInt(rkForm.type_id),
+        betaalmethode: rkForm.betaalmethode,
+        betaald: rkForm.betaald,
+        betaaldatum: rkForm.betaald ? rkForm.betaaldatum : null,
+      })
+      setShowRkAssign(false)
+      setRkForm({type_id:'',betaalmethode:'contant',betaald:false,betaaldatum:new Date().toISOString().split('T')[0]})
+      api.get(`/admin/members/${selected}/rittenkaarten`).then(rk => setMemberRittenkaarten(rk.data.kaarten)).catch(()=>{})
+    } catch(e) { alert(e.response?.data?.error || 'Fout') }
+  }
+
+  const doRkCorrectie = async (kaartId, delta) => {
+    try {
+      const r = await api.post(`/admin/rittenkaarten/${kaartId}/correctie`, { delta, reden: 'handmatige_correctie' })
+      alert(r.data.message)
+      api.get(`/admin/members/${selected}/rittenkaarten`).then(rk => setMemberRittenkaarten(rk.data.kaarten)).catch(()=>{})
+    } catch(e) { alert(e.response?.data?.error || 'Fout') }
   }
 
   return (
@@ -948,6 +977,80 @@ function LedenSection() {
                   </div>
                 </div>
               )}
+
+              {/* Rittenkaarten */}
+              <div className="card">
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                  <h3 style={{margin:0}}>Rittenkaarten</h3>
+                  <button className="btn btn-outline btn-sm" onClick={()=>setShowRkAssign(s=>!s)}>
+                    {showRkAssign?<><X size={13}/> Annuleren</>:<><Ticket size={13}/> Toewijzen</>}
+                  </button>
+                </div>
+
+                {showRkAssign && (
+                  <div style={{padding:'0.75rem',background:'var(--surface-3)',borderRadius:'var(--r)',marginBottom:'0.75rem',display:'flex',flexDirection:'column',gap:'0.5rem'}}>
+                    <h4 style={{margin:0,fontSize:'0.875rem'}}>Nieuwe rittenkaart</h4>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem'}}>
+                      <div style={{gridColumn:'span 2'}}>
+                        <label className="input-label">Type *</label>
+                        <select className="input" value={rkForm.type_id} onChange={e=>setRkForm({...rkForm,type_id:e.target.value})}>
+                          <option value="">— Selecteer type —</option>
+                          {rkTypes.map(t=><option key={t.id} value={t.id}>{t.naam} — €{Number(t.prijs).toFixed(2)} ({t.ritten} ritten)</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="input-label">Betaalmethode</label>
+                        <select className="input" value={rkForm.betaalmethode} onChange={e=>setRkForm({...rkForm,betaalmethode:e.target.value})}>
+                          <option value="contant">Contant</option>
+                          <option value="pin">Pin</option>
+                          <option value="anders">Anders</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="input-label">Betaaldatum</label>
+                        <input className="input" type="date" value={rkForm.betaaldatum} onChange={e=>setRkForm({...rkForm,betaaldatum:e.target.value})}/>
+                      </div>
+                      <div style={{gridColumn:'span 2'}}>
+                        <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.875rem',cursor:'pointer'}}>
+                          <input type="checkbox" checked={rkForm.betaald} onChange={e=>setRkForm({...rkForm,betaald:e.target.checked})}/>
+                          Betaling ontvangen
+                        </label>
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:'0.5rem'}}>
+                      <button className="btn btn-primary btn-sm" onClick={doAssignRk}><Check size={13}/> Toewijzen</button>
+                      <button className="btn btn-ghost btn-sm" onClick={()=>setShowRkAssign(false)}><X size={13}/> Annuleren</button>
+                    </div>
+                  </div>
+                )}
+
+                {memberRittenkaarten.length===0 && !showRkAssign && <p style={{color:'var(--text-muted)',fontSize:'0.875rem'}}>Geen rittenkaarten</p>}
+                {memberRittenkaarten.map(k => (
+                  <div key={k.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.5rem 0.6rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.35rem'}}>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:'0.85rem'}}>{k.type_naam}</div>
+                      <div style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>
+                        {k.betaalmethode} · {fmtDate(k.created_at)}
+                        {k.vervaldatum && <span style={{marginLeft:4}}>· t/m {fmtDate(k.vervaldatum)}</span>}
+                        {!k.betaald && <span style={{marginLeft:4,color:'var(--error)',fontWeight:600}}>· Onbetaald</span>}
+                        {k.status==='depleted' && <span style={{marginLeft:4,color:'var(--error)',fontWeight:600}}>· Op</span>}
+                      </div>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:'0.5rem'}}>
+                      <div style={{textAlign:'right',minWidth:44}}>
+                        <div style={{fontWeight:800,fontSize:'1rem',color:Number(k.ritten_resterend)<=2&&k.status==='active'?'#f5c200':k.status==='depleted'?'var(--error)':'var(--success)'}}>
+                          {k.ritten_resterend}<span style={{fontSize:'0.72rem',fontWeight:400,color:'var(--text-muted)'}}>/{k.ritten_totaal}</span>
+                        </div>
+                        <div style={{fontSize:'0.68rem',color:'var(--text-muted)'}}>ritten</div>
+                      </div>
+                      <div style={{display:'flex',gap:'0.2rem'}}>
+                        <button className="btn btn-sm" style={{padding:'3px 7px',background:'rgba(34,197,94,0.15)',color:'var(--success)',border:'1px solid rgba(34,197,94,0.3)',fontSize:'0.78rem'}} onClick={()=>doRkCorrectie(k.id,1)}>+1</button>
+                        <button className="btn btn-sm" style={{padding:'3px 7px',background:'rgba(239,68,68,0.12)',color:'var(--error)',border:'1px solid rgba(239,68,68,0.25)',fontSize:'0.78rem'}} onClick={()=>doRkCorrectie(k.id,-1)} disabled={Number(k.ritten_resterend)<=0}>−1</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
               {detail.pt_sessions.length > 0 && (
                 <div className="card">
@@ -1489,10 +1592,6 @@ function RoosterSection() {
   const [tab,            setTab]            = useState('upcoming')
   const [showNew,        setShowNew]        = useState(false)
   const [form,           setForm]           = useState({name:'',instructor:'Mohammed',category:'kickboksen-recreanten',date_time:'',duration_minutes:60,max_capacity:18,location:'Zaal A',repeat_type:'none',repeat_weeks:4})
-  const [expandedClassId,setExpandedClassId]= useState(null)
-  const [classBookings,  setClassBookings]  = useState([])
-  const [loadingBookings,setLoadingBookings]= useState(false)
-
   useEffect(() => { api.get('/admin/classes').then(r => setClasses(r.data.classes)).catch(() => {}) }, [])
 
   const CATS = ['kickboksen-kids','kickboksen-recreanten','kickboksen-ladies-only','kickboksen-jeugd','boksen-recreanten','boksen-ladies-only','jeugd']
@@ -1519,24 +1618,6 @@ function RoosterSection() {
     if (!confirm('Les annuleren?')) return
     await api.delete(`/admin/classes/${id}`)
     setClasses(c => c.map(x => x.id===id?{...x,status:'cancelled'}:x))
-  }
-
-  const toggleClassDetail = async (classId) => {
-    if (expandedClassId === classId) { setExpandedClassId(null); setClassBookings([]); return }
-    setExpandedClassId(classId)
-    setLoadingBookings(true)
-    try {
-      const r = await api.get(`/admin/classes/${classId}/bookings`)
-      setClassBookings(r.data.bookings)
-    } catch(_) {}
-    setLoadingBookings(false)
-  }
-
-  const doMarkAanwezig = async (bookingId) => {
-    try {
-      await api.post(`/admin/bookings/${bookingId}/aanwezig`)
-      setClassBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: 'attended' } : b))
-    } catch(e) { alert(e.response?.data?.error || 'Fout') }
   }
 
   return (
@@ -1586,41 +1667,14 @@ function RoosterSection() {
         </div>
       )}
       {(tab==='upcoming'?upcoming:past).map(c => (
-        <div key={c.id} style={{marginBottom:'0.4rem'}}>
-          <div
-            style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:expandedClassId===c.id?'var(--r) var(--r) 0 0':'var(--r)',cursor:'pointer'}}
-            onClick={() => toggleClassDetail(c.id)}
-          >
-            <div>
-              <div style={{fontWeight:600,fontSize:'0.875rem'}}>{c.name}</div>
-              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(c.date_time)} · {c.instructor} · {c.confirmed_bookings}/{c.max_capacity}</div>
-            </div>
-            <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
-              {expandedClassId===c.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
-              {c.status==='scheduled' ? (
-                <button className="btn btn-danger btn-sm" onClick={e=>{e.stopPropagation();cancelClass(c.id)}}><X size={13}/></button>
-              ) : <span style={{fontSize:'0.75rem',color:'var(--error)'}}>Geannuleerd</span>}
-            </div>
+        <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:'0.875rem'}}>{c.name}</div>
+            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(c.date_time)} · {c.instructor} · {c.confirmed_bookings}/{c.max_capacity}</div>
           </div>
-          {expandedClassId===c.id && (
-            <div style={{background:'var(--surface-3,rgba(255,255,255,0.04))',borderRadius:'0 0 var(--r) var(--r)',padding:'0.5rem 0.75rem'}}>
-              {loadingBookings && <p style={{color:'var(--text-muted)',fontSize:'0.8rem',margin:0}}>Laden…</p>}
-              {!loadingBookings && classBookings.length===0 && <p style={{color:'var(--text-muted)',fontSize:'0.8rem',margin:0}}>Geen boekingen</p>}
-              {classBookings.map(b => (
-                <div key={b.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.3rem 0',borderBottom:'1px solid var(--border)'}}>
-                  <span style={{fontWeight:500,fontSize:'0.85rem'}}>{b.first_name} {b.last_name}</span>
-                  <span style={{fontSize:'0.75rem',color:'var(--text-muted)',flex:1,marginLeft:'0.5rem'}}>{b.email}</span>
-                  {b.status==='attended' ? (
-                    <span style={{padding:'2px 10px',borderRadius:10,background:'rgba(34,197,94,0.15)',color:'var(--success)',fontSize:'0.72rem',fontWeight:700}}>✓ Aanwezig</span>
-                  ) : (
-                    <button className="btn btn-sm" style={{padding:'3px 10px',background:'rgba(34,197,94,0.1)',color:'var(--success)',fontSize:'0.75rem',border:'1px solid rgba(34,197,94,0.3)'}} onClick={()=>doMarkAanwezig(b.id)}>
-                      Aanwezig ✓
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          {c.status==='scheduled' ? (
+            <button className="btn btn-danger btn-sm" onClick={() => cancelClass(c.id)}><X size={13}/></button>
+          ) : <span style={{fontSize:'0.75rem',color:'var(--error)'}}>Geannuleerd</span>}
         </div>
       ))}
     </div>
@@ -2623,26 +2677,17 @@ function BerichtenSection() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// RITTENKAARTEN
+// INSTELLINGEN (rittenkaart-types beheer)
 // ════════════════════════════════════════════════════════════════════
-function RittenkaartenSection() {
-  const [tab,          setTab]          = useState('overzicht')
+function InstellingenSection() {
   const [types,        setTypes]        = useState([])
-  const [kaarten,      setKaarten]      = useState([])
-  const [members,      setMembers]      = useState([])
   const [showTypeForm, setShowTypeForm] = useState(false)
   const [editType,     setEditType]     = useState(null)
   const [typeForm,     setTypeForm]     = useState({naam:'',ritten:'',prijs:'',geldigheid_dagen:''})
-  const [showAssign,   setShowAssign]   = useState(false)
-  const [assignForm,   setAssignForm]   = useState({user_id:'',type_id:'',betaalmethode:'contant',betaald:false,betaaldatum:new Date().toISOString().split('T')[0]})
 
-  const loadTypes   = () => api.get('/admin/rittenkaart-types').then(r => setTypes(r.data.types)).catch(()=>{})
-  const loadKaarten = () => api.get('/admin/rittenkaarten').then(r => setKaarten(r.data.kaarten)).catch(()=>{})
-  const loadMembers = () => api.get('/admin/members').then(r => setMembers(r.data.members)).catch(()=>{})
+  const loadTypes = () => api.get('/admin/rittenkaart-types').then(r => setTypes(r.data.types)).catch(()=>{})
 
-  useEffect(() => { loadTypes(); loadKaarten(); loadMembers() }, [])
-
-  const activeTypes = types.filter(t => t.actief)
+  useEffect(() => { loadTypes() }, [])
 
   const saveType = async () => {
     if (!typeForm.naam || !typeForm.ritten || !typeForm.prijs) return alert('Naam, ritten en prijs zijn verplicht.')
@@ -2660,137 +2705,16 @@ function RittenkaartenSection() {
     loadTypes()
   }
 
-  const doAssign = async () => {
-    if (!assignForm.user_id || !assignForm.type_id) return alert('Selecteer een lid en een type.')
-    try {
-      await api.post(`/admin/members/${assignForm.user_id}/rittenkaart`, {
-        type_id: parseInt(assignForm.type_id),
-        betaalmethode: assignForm.betaalmethode,
-        betaald: assignForm.betaald,
-        betaaldatum: assignForm.betaald ? assignForm.betaaldatum : null,
-      })
-      setShowAssign(false)
-      loadKaarten()
-    } catch(e) { alert(e.response?.data?.error||'Fout') }
-  }
-
-  const doCorrectie = async (id, delta) => {
-    try {
-      const r = await api.post(`/admin/rittenkaarten/${id}/correctie`, { delta, reden: 'handmatige_correctie' })
-      alert(r.data.message)
-      loadKaarten()
-    } catch(e) { alert(e.response?.data?.error||'Fout') }
-  }
-
-  const bijnaOp = kaarten.filter(k => k.status==='active' && Number(k.ritten_resterend) <= 2)
-
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.25rem'}}>
-        <div className="tab-bar">
-          <button className={`tab-btn${tab==='overzicht'?' active':''}`} onClick={()=>setTab('overzicht')}>
-            Kaarten ({kaarten.filter(k=>k.status==='active').length})
-          </button>
-          <button className={`tab-btn${tab==='types'?' active':''}`} onClick={()=>setTab('types')}>
-            Types ({activeTypes.length})
-          </button>
-        </div>
-        {tab==='overzicht' && (
-          <button className="btn btn-primary btn-sm" onClick={()=>setShowAssign(s=>!s)}>
-            {showAssign?<X size={13}/>:<Plus size={13}/>} Kaart toekennen
-          </button>
-        )}
-        {tab==='types' && (
-          <button className="btn btn-primary btn-sm" onClick={()=>{setShowTypeForm(s=>!s);setEditType(null);setTypeForm({naam:'',ritten:'',prijs:'',geldigheid_dagen:''})}}>
-            {showTypeForm?<X size={13}/>:<Plus size={13}/>} Nieuw type
-          </button>
-        )}
+        <h2 style={{margin:0}}>Rittenkaart types</h2>
+        <button className="btn btn-primary btn-sm" onClick={()=>{setShowTypeForm(s=>!s);setEditType(null);setTypeForm({naam:'',ritten:'',prijs:'',geldigheid_dagen:''})}}>
+          {showTypeForm?<X size={13}/>:<Plus size={13}/>} Nieuw type
+        </button>
       </div>
 
-      {/* ── Overzicht tab ── */}
-      {tab==='overzicht' && (
-        <div>
-          {showAssign && (
-            <div className="card" style={{marginBottom:'1rem'}}>
-              <h3 style={{marginBottom:'0.75rem',fontSize:'0.95rem'}}>Rittenkaart toekennen</h3>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.75rem'}}>
-                <div>
-                  <label className="input-label">Lid *</label>
-                  <select className="input" value={assignForm.user_id} onChange={e=>setAssignForm({...assignForm,user_id:e.target.value})}>
-                    <option value="">— Selecteer lid —</option>
-                    {members.map(m=><option key={m.id} value={m.id}>{m.first_name} {m.last_name} ({m.email})</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="input-label">Type *</label>
-                  <select className="input" value={assignForm.type_id} onChange={e=>setAssignForm({...assignForm,type_id:e.target.value})}>
-                    <option value="">— Selecteer type —</option>
-                    {activeTypes.map(t=><option key={t.id} value={t.id}>{t.naam} — €{Number(t.prijs).toFixed(2)}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="input-label">Betaalmethode</label>
-                  <select className="input" value={assignForm.betaalmethode} onChange={e=>setAssignForm({...assignForm,betaalmethode:e.target.value})}>
-                    <option value="contant">Contant</option>
-                    <option value="pin">Pin</option>
-                    <option value="anders">Anders</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="input-label">Betaaldatum</label>
-                  <input className="input" type="date" value={assignForm.betaaldatum} onChange={e=>setAssignForm({...assignForm,betaaldatum:e.target.value})}/>
-                </div>
-                <div style={{gridColumn:'span 2'}}>
-                  <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.875rem',cursor:'pointer'}}>
-                    <input type="checkbox" checked={assignForm.betaald} onChange={e=>setAssignForm({...assignForm,betaald:e.target.checked})}/>
-                    Betaling ontvangen
-                  </label>
-                </div>
-              </div>
-              <div style={{display:'flex',gap:'0.5rem',marginTop:'0.75rem'}}>
-                <button className="btn btn-primary btn-sm" onClick={doAssign}><Check size={13}/> Toekennen</button>
-                <button className="btn btn-ghost btn-sm" onClick={()=>setShowAssign(false)}><X size={13}/> Annuleren</button>
-              </div>
-            </div>
-          )}
-
-          {bijnaOp.length > 0 && (
-            <div style={{background:'rgba(245,194,0,0.1)',border:'1px solid rgba(245,194,0,0.5)',borderRadius:'var(--r)',padding:'0.6rem 0.75rem',marginBottom:'1rem',fontSize:'0.82rem',color:'#f5c200'}}>
-              ⚠ {bijnaOp.length} lid{bijnaOp.length>1?'en hebben':'heeft'} nog maar ≤2 ritten resterend
-            </div>
-          )}
-
-          {kaarten.length===0 && <p style={{color:'var(--text-muted)'}}>Geen rittenkaarten gevonden.</p>}
-          {kaarten.map(k => (
-            <div key={k.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:600,fontSize:'0.875rem'}}>{k.first_name} {k.last_name}</div>
-                <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>
-                  {k.type_naam} · {fmtDate(k.created_at)} · {k.betaalmethode}
-                  {k.vervaldatum && <span style={{marginLeft:6}}>· geldig t/m {fmtDate(k.vervaldatum)}</span>}
-                </div>
-                {!k.betaald && <span style={{fontSize:'0.72rem',color:'var(--error)',fontWeight:600}}>⚠ Onbetaald</span>}
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
-                <div style={{textAlign:'right'}}>
-                  <div style={{fontWeight:800,fontSize:'1.1rem',color:Number(k.ritten_resterend)<=2&&k.status==='active'?'#f5c200':k.status==='depleted'?'var(--error)':'var(--success)'}}>
-                    {k.ritten_resterend}<span style={{fontSize:'0.75rem',fontWeight:400,color:'var(--text-muted)'}}>/{k.ritten_totaal}</span>
-                  </div>
-                  <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>ritten</div>
-                </div>
-                <div style={{display:'flex',gap:'0.25rem'}}>
-                  <button className="btn btn-sm" style={{padding:'4px 8px',background:'rgba(34,197,94,0.15)',color:'var(--success)',border:'1px solid rgba(34,197,94,0.3)'}} onClick={()=>doCorrectie(k.id,1)}>+1</button>
-                  <button className="btn btn-sm" style={{padding:'4px 8px',background:'rgba(239,68,68,0.12)',color:'var(--error)',border:'1px solid rgba(239,68,68,0.25)'}} onClick={()=>doCorrectie(k.id,-1)} disabled={Number(k.ritten_resterend)<=0}>−1</button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Types tab ── */}
-      {tab==='types' && (
-        <div>
+      <div>
           {showTypeForm && (
             <div className="card" style={{marginBottom:'1rem'}}>
               <h3 style={{marginBottom:'0.75rem',fontSize:'0.95rem'}}>{editType?'Type bewerken':'Nieuw type'}</h3>
@@ -2843,8 +2767,7 @@ function RittenkaartenSection() {
               </div>
             </div>
           ))}
-        </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -2862,7 +2785,7 @@ const MENU = [
   { key:'betalingen', label:'Betalingen',    Icon:CreditCard      },
   { key:'community',  label:'Community',     Icon:Users2          },
   { key:'rooster',        label:'Rooster',        Icon:Calendar      },
-  { key:'rittenkaarten', label:'Rittenkaarten', Icon:Ticket        },
+  { key:'instellingen',  label:'Instellingen',   Icon:Ticket        },
   { key:'berichten',     label:'Berichten',      Icon:MessageCircle },
 ]
 
@@ -2907,9 +2830,9 @@ export default function AdminPage() {
         {section==='inkomen'    && <InkomenSection/>}
         {section==='betalingen' && <BetalingenCombinedSection/>}
         {section==='community'  && <CommunityBeheer/>}
-        {section==='rooster'       && <RoosterSection/>}
-        {section==='rittenkaarten' && <RittenkaartenSection/>}
-        {section==='berichten'     && <BerichtenSection/>}
+        {section==='rooster'      && <RoosterSection/>}
+        {section==='instellingen' && <InstellingenSection/>}
+        {section==='berichten'    && <BerichtenSection/>}
       </main>
     </div>
   )

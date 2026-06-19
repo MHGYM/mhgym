@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const db = require('../config/database');
 const { sendPush } = require('./ptController');
 const { sendEmail, sendAdminWelcomeEmail, sendPtConfirmationEmail } = require('../services/emailService');
+const { deductRitForBooking } = require('./rittenkaartController');
 
 // ── Lidmaatschapstypes (constanten) ────────────────────────────────────────
 const MEMBERSHIP_TYPES = [
@@ -1062,8 +1063,11 @@ const adminBookClass = async (req, res) => {
   });
   if (dup.rows[0]) return res.status(409).json({ error: 'Dit lid is al ingeschreven voor deze les.' });
 
-  await db.execute({ sql: `INSERT INTO bookings (user_id, class_id) VALUES (?, ?)`, args: [user_id, class_id] });
+  const bResult = await db.execute({ sql: `INSERT INTO bookings (user_id, class_id) VALUES (?, ?)`, args: [user_id, class_id] });
   await db.execute({ sql: `UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = ?`, args: [class_id] });
+
+  // Rit aftrekken bij rittenkaart-houders zonder abonnement (fire-and-forget)
+  deductRitForBooking(user_id, Number(bResult.lastInsertRowid)).catch(() => {});
 
   const dtStr = new Date(cls.date_time).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   sendPush(user_id, `Ingeboekt: ${cls.name}`, `Je bent ingeboekt voor ${cls.name} op ${dtStr}.`).catch(() => {});

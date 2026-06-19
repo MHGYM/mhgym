@@ -71,8 +71,8 @@ router.put('/rittenkaart-types/:id',        rkCtrl.updateType);
 router.delete('/rittenkaart-types/:id',     rkCtrl.deactivateType);
 router.get('/rittenkaarten',                rkCtrl.listRittenkaarten);
 router.post('/members/:id/rittenkaart',     rkCtrl.assignRittenkaart);
+router.get('/members/:id/rittenkaarten',    rkCtrl.getMemberRittenkaarten);
 router.post('/rittenkaarten/:id/correctie', rkCtrl.correctie);
-router.post('/bookings/:id/aanwezig',       rkCtrl.markAanwezig);
 
 // ── Berichten (chat) ────────────────────────────────────────────────────────
 router.get('/messages/unread-count',     msgCtrl.adminUnreadCount);
