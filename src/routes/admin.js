@@ -20,7 +20,8 @@ router.put('/members/:id/custom-amount',  ctrl.updateCustomAmount);
 router.post('/members/:id/membership',    ctrl.assignMembership);
 router.put('/members/:id/memberships/:mid/paid', ctrl.markCashPaid);
 router.post('/members/:id/pt-lessons',    ctrl.addPtLessons);
-router.delete('/members/:id',             ctrl.deleteMember);
+router.delete('/members/:id',                           ctrl.deleteMember);
+router.delete('/members/:id/memberships/:mid',          ctrl.deleteMembership);
 
 // ── Lessen ───────────────────────────────────────────────────────────────────
 router.get('/classes',             ctrl.adminListClasses);
@@ -72,7 +73,8 @@ router.delete('/rittenkaart-types/:id',     rkCtrl.deactivateType);
 router.get('/rittenkaarten',                rkCtrl.listRittenkaarten);
 router.post('/members/:id/rittenkaart',     rkCtrl.assignRittenkaart);
 router.get('/members/:id/rittenkaarten',    rkCtrl.getMemberRittenkaarten);
-router.post('/rittenkaarten/:id/correctie', rkCtrl.correctie);
+router.post('/rittenkaarten/:id/correctie',  rkCtrl.correctie);
+router.delete('/rittenkaarten/:id',          rkCtrl.deleteRittenkaart);
 
 // ── Berichten (chat) ────────────────────────────────────────────────────────
 router.get('/messages/unread-count',     msgCtrl.adminUnreadCount);

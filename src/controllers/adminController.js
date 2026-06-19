@@ -1140,10 +1140,60 @@ const adminBookPt = async (req, res) => {
   res.status(201).json({ message: 'Lid ingeboekt voor PT sessie.' });
 };
 
+const deleteMembership = async (req, res) => {
+  const { id, mid } = req.params;
+
+  const memRes = await db.execute({
+    sql: `SELECT * FROM user_memberships WHERE id = ? AND user_id = ?`,
+    args: [mid, id],
+  });
+  const mem = memRes.rows[0];
+  if (!mem) return res.status(404).json({ error: 'Lidmaatschap niet gevonden.' });
+
+  let mollie_gestopt = false;
+
+  if (mem.payment_type === 'mollie' && mem.mollie_subscription_id) {
+    const userRes = await db.execute({
+      sql: `SELECT mollie_customer_id FROM users WHERE id = ?`,
+      args: [id],
+    });
+    const customerId = userRes.rows[0]?.mollie_customer_id;
+    if (customerId) {
+      try {
+        const { createMollieClient } = require('@mollie/api-client');
+        const mollie = createMollieClient({ apiKey: process.env.MOLLIE_API_KEY });
+        await mollie.customerSubscriptions.cancel({ customerId, id: mem.mollie_subscription_id });
+        mollie_gestopt = true;
+        console.log(`[Admin] Mollie subscription ${mem.mollie_subscription_id} gestopt bij verwijderen lidmaatschap ${mid}`);
+      } catch (e) {
+        if (e.message?.toLowerCase().includes('cancel')) {
+          mollie_gestopt = true; // al geannuleerd
+        } else {
+          console.warn('[Admin] Mollie subscription annuleren mislukt:', e.message);
+        }
+      }
+    }
+  }
+
+  if (mem.fonds_member_id) {
+    await db.execute({
+      sql: `UPDATE fonds_members SET status = 'inactive' WHERE id = ?`,
+      args: [mem.fonds_member_id],
+    });
+  }
+
+  await db.execute({
+    sql: `UPDATE user_memberships SET status = 'cancelled', cancels_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+    args: [mid],
+  });
+
+  res.json({ message: 'Lidmaatschap verwijderd.', mollie_gestopt });
+};
+
 module.exports = {
   MEMBERSHIP_TYPES,
   listMembers, getMember, setMemberRole, updateMemberNotes, pauseMembership,
-  assignMembership, markCashPaid, addPtLessons, deleteMember, createMemberWithSepa, updateCustomAmount,
+  assignMembership, markCashPaid, addPtLessons, deleteMember, deleteMembership, createMemberWithSepa, updateCustomAmount,
   adminListClasses, adminCreateClass, adminUpdateClass, adminCancelClass, adminGetClassBookings,
   adminListBookings,
   adminListPayments,

@@ -204,10 +204,21 @@ async function restoreRitForBooking(bookingId) {
   return true;
 }
 
+const deleteRittenkaart = async (req, res) => {
+  const { id } = req.params;
+  const rkRes = await db.execute({ sql: `SELECT id FROM rittenkaarten WHERE id = ?`, args: [id] });
+  if (!rkRes.rows[0]) return res.status(404).json({ error: 'Rittenkaart niet gevonden.' });
+  await db.execute({
+    sql: `UPDATE rittenkaarten SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`,
+    args: [id],
+  });
+  res.json({ message: 'Rittenkaart verwijderd.' });
+};
+
 module.exports = {
   listTypes, createType, updateType, deactivateType,
   listRittenkaarten, getMemberRittenkaarten,
-  assignRittenkaart, correctie,
+  assignRittenkaart, correctie, deleteRittenkaart,
   myRittenkaarten,
   deductRitForBooking, restoreRitForBooking,
 };

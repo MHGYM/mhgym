@@ -573,6 +573,25 @@ function LedenSection() {
     } catch(e) { alert(e.response?.data?.error || 'Fout') }
   }
 
+  const doDeleteMembership = async (mid, hasMollie) => {
+    const msg = hasMollie
+      ? 'Dit stopt ook de automatische incasso in Mollie. Weet je het zeker?'
+      : 'Lidmaatschap verwijderen? Dit kan niet ongedaan worden gemaakt.'
+    if (!confirm(msg)) return
+    try {
+      await api.delete(`/admin/members/${selected}/memberships/${mid}`)
+      openMember(selected); loadMembers(search)
+    } catch(e) { alert(e.response?.data?.error || 'Fout bij verwijderen') }
+  }
+
+  const doDeleteRittenkaart = async kaartId => {
+    if (!confirm('Rittenkaart verwijderen?')) return
+    try {
+      await api.delete(`/admin/rittenkaarten/${kaartId}`)
+      api.get(`/admin/members/${selected}/rittenkaarten`).then(rk => setMemberRittenkaarten(rk.data.kaarten)).catch(()=>{})
+    } catch(e) { alert(e.response?.data?.error || 'Fout bij verwijderen') }
+  }
+
   return (
     <div style={{display:'grid', gridTemplateColumns: selected ? '320px 1fr' : '1fr', gap:'1.5rem'}}>
       {showAddMember && (
@@ -688,14 +707,25 @@ function LedenSection() {
                 </div>
 
                 {activeMem ? (
-                  <div style={{padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.75rem'}}>
-                    <div style={{fontWeight:600}}>{activeMem.membership_name||activeMem.membership_type_key}</div>
+                  <div style={{padding:'0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.75rem',position:'relative'}}>
+                    <button
+                      className="btn btn-danger btn-sm"
+                      style={{position:'absolute',top:'0.5rem',right:'0.5rem',padding:'3px 6px'}}
+                      title="Lidmaatschap verwijderen"
+                      onClick={() => doDeleteMembership(activeMem.id, !!(activeMem.payment_type==='mollie' && activeMem.mollie_subscription_id))}
+                    >
+                      <Trash2 size={12}/>
+                    </button>
+                    <div style={{fontWeight:600,paddingRight:'2rem'}}>{activeMem.membership_name||activeMem.membership_type_key}</div>
                     <div style={{fontSize:'0.8rem',color:'var(--text-muted)',marginTop:3}}>
                       {fmtDate(activeMem.start_date)} – {activeMem.end_date?fmtDate(activeMem.end_date):'Doorlopend'}
                       {activeMem.is_cash && <span style={{marginLeft:8,color:activeMem.cash_paid?'var(--success)':'var(--error)'}}>
                         {activeMem.cash_paid?'✓ Cash betaald':'⚠ Cash onbetaald'}
                       </span>}
                     </div>
+                    {activeMem.payment_type === 'mollie' && activeMem.mollie_subscription_id && (
+                      <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginTop:2}}>⚡ Actieve Mollie-incasso — verwijderen stopt ook de incasso</div>
+                    )}
                     {activeMem.admin_price && <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>Prijs: {fmtMoney(activeMem.admin_price)}</div>}
                     {activeMem.subscription_type === 'custom' && activeMem.custom_amount != null && (
                       <div style={{fontSize:'0.8rem',color:'var(--accent)',fontWeight:600,marginTop:2}}>
@@ -1046,6 +1076,7 @@ function LedenSection() {
                       <div style={{display:'flex',gap:'0.2rem'}}>
                         <button className="btn btn-sm" style={{padding:'3px 7px',background:'rgba(34,197,94,0.15)',color:'var(--success)',border:'1px solid rgba(34,197,94,0.3)',fontSize:'0.78rem'}} onClick={()=>doRkCorrectie(k.id,1)}>+1</button>
                         <button className="btn btn-sm" style={{padding:'3px 7px',background:'rgba(239,68,68,0.12)',color:'var(--error)',border:'1px solid rgba(239,68,68,0.25)',fontSize:'0.78rem'}} onClick={()=>doRkCorrectie(k.id,-1)} disabled={Number(k.ritten_resterend)<=0}>−1</button>
+                        <button className="btn btn-sm" style={{padding:'3px 6px',background:'rgba(239,68,68,0.12)',color:'var(--error)',border:'1px solid rgba(239,68,68,0.25)'}} title="Verwijderen" onClick={()=>doDeleteRittenkaart(k.id)}><Trash2 size={11}/></button>
                       </div>
                     </div>
                   </div>
