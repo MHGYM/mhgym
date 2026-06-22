@@ -39,6 +39,25 @@ async function initDb() {
     created_at       TEXT    NOT NULL DEFAULT (datetime('now'))
   )`);
 
+  // Herstel corrupte einddatums (jaar buiten 2020-2100, typisch door verkeerde invoer)
+  await db.execute(`
+    UPDATE fonds_members
+    SET end_date = date(start_date, '+1 year')
+    WHERE start_date IS NOT NULL AND start_date != ''
+      AND (LENGTH(end_date) != 10
+        OR CAST(substr(end_date, 1, 4) AS INTEGER) < 2020
+        OR CAST(substr(end_date, 1, 4) AS INTEGER) > 2100)
+  `);
+  await db.execute(`
+    UPDATE user_memberships
+    SET end_date = date(start_date, '+12 months')
+    WHERE end_date IS NOT NULL AND start_date IS NOT NULL AND start_date != ''
+      AND status IN ('active', 'cancelling')
+      AND (LENGTH(end_date) != 10
+        OR CAST(substr(end_date, 1, 4) AS INTEGER) < 2020
+        OR CAST(substr(end_date, 1, 4) AS INTEGER) > 2100)
+  `);
+
   const existing = await db.execute('SELECT COUNT(*) as n FROM rittenkaart_types');
   if (Number(existing.rows[0].n) === 0) {
     await db.batch([

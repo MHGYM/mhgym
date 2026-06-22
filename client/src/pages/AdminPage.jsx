@@ -448,8 +448,9 @@ function LedenSection() {
   const [assignQuarter, setAssignQuarter] = useState('')          // kwartaalbedrag
   const [fondsType,     setFondsType]     = useState('jeugdsportfonds')
   const [fondsName,     setFondsName]     = useState('')
-  const [fondsEnd,      setFondsEnd]      = useState('')
   const [fondsBedrag,   setFondsBedrag]   = useState('')
+  const [showFondsEdit, setShowFondsEdit] = useState(false)
+  const [fondsEditForm, setFondsEditForm] = useState({ start_date:'', end_date:'', amount_covered:'' })
   const [showPtAdd,     setShowPtAdd]     = useState(false)
   const [ptLessons,     setPtLessons]     = useState('')
   const [ptNotes,       setPtNotes]       = useState('')
@@ -504,7 +505,6 @@ function LedenSection() {
         quarterly_amount: assignPayment === 'cash' ? (parseFloat(assignQuarter) || null) : null,
         fonds_type: assignPayment === 'fonds' ? fondsType : undefined,
         fonds_name: assignPayment === 'fonds' ? (fondsName || fondsType) : undefined,
-        fonds_end_date: assignPayment === 'fonds' ? fondsEnd : undefined,
         fonds_amount_covered: assignPayment === 'fonds' ? (parseFloat(fondsBedrag) || null) : undefined,
       })
       setShowAssign(false); openMember(selected); loadMembers(search)
@@ -589,6 +589,30 @@ function LedenSection() {
     try {
       await api.delete(`/admin/rittenkaarten/${kaartId}`)
       api.get(`/admin/members/${selected}/rittenkaarten`).then(rk => setMemberRittenkaarten(rk.data.kaarten)).catch(()=>{})
+    } catch(e) { alert(e.response?.data?.error || 'Fout bij verwijderen') }
+  }
+
+  const openFondsEdit = fonds => {
+    setFondsEditForm({ start_date: fonds.start_date||'', end_date: fonds.end_date||'', amount_covered: fonds.amount_covered||'' })
+    setShowFondsEdit(true)
+  }
+
+  const doFondsEdit = async fondsId => {
+    const body = {}
+    if (fondsEditForm.start_date)   body.start_date    = fondsEditForm.start_date
+    if (fondsEditForm.end_date)     body.end_date      = fondsEditForm.end_date
+    if (fondsEditForm.amount_covered !== '') body.amount_covered = parseFloat(fondsEditForm.amount_covered) || null
+    try {
+      await api.put(`/cash/fonds/${fondsId}`, body)
+      setShowFondsEdit(false); openMember(selected)
+    } catch(e) { alert(e.response?.data?.error || 'Fout bij opslaan') }
+  }
+
+  const doFondsDelete = async fondsId => {
+    if (!confirm('Fonds verwijderen? Het bijbehorende lidmaatschap blijft bestaan.')) return
+    try {
+      await api.delete(`/cash/fonds/${fondsId}`)
+      openMember(selected)
     } catch(e) { alert(e.response?.data?.error || 'Fout bij verwijderen') }
   }
 
@@ -847,10 +871,6 @@ function LedenSection() {
                             <input className="input" placeholder="Optioneel" value={fondsName} onChange={e => setFondsName(e.target.value)}/>
                           </div>
                           <div>
-                            <label className="input-label">Einddatum fonds</label>
-                            <input className="input" type="date" value={fondsEnd} onChange={e => setFondsEnd(e.target.value)}/>
-                          </div>
-                          <div>
                             <label className="input-label">Bedrag gedekt (€)</label>
                             <input className="input" type="number" placeholder="0" value={fondsBedrag} onChange={e => setFondsBedrag(e.target.value)}/>
                           </div>
@@ -941,8 +961,11 @@ function LedenSection() {
                   {/* Fonds info */}
                   {activeMem.payment_type === 'fonds' && detail.fonds?.length > 0 && (() => {
                     const fonds = detail.fonds[0]
-                    const daysLeft = Number(fonds.days_remaining || 0)
-                    const urgentColor = daysLeft < 7 ? 'var(--error)' : daysLeft < 14 ? 'var(--warning)' : 'var(--success)'
+                    const daysLeft = fonds.days_remaining != null ? Number(fonds.days_remaining) : null
+                    const urgentColor = daysLeft === null ? 'var(--text-2)' : daysLeft < 7 ? 'var(--error)' : daysLeft < 14 ? 'var(--warning)' : 'var(--success)'
+                    const statusLabel = daysLeft !== null && daysLeft > 0
+                      ? `${Math.round(daysLeft)}d resterend`
+                      : daysLeft !== null ? 'VERLOPEN' : 'lopend'
                     return (
                       <div style={{background:'var(--surface-2)',borderRadius:8,padding:'0.6rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem'}}>
                         <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
@@ -950,8 +973,8 @@ function LedenSection() {
                           <span style={{fontWeight:600}}>{fonds.fonds_name||fonds.fonds_type}</span>
                         </div>
                         <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
-                          <span style={{color:'var(--text-muted)'}}>Einddatum</span>
-                          <span style={{fontWeight:700,color:urgentColor}}>{fonds.end_date} ({daysLeft > 0 ? `${Math.round(daysLeft)}d resterend` : 'VERLOPEN'})</span>
+                          <span style={{color:'var(--text-muted)'}}>Periode</span>
+                          <span style={{fontWeight:700,color:urgentColor}}>{fonds.start_date} → {fonds.end_date} ({statusLabel})</span>
                         </div>
                         {fonds.amount_covered && (
                           <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.85rem'}}>
@@ -959,18 +982,36 @@ function LedenSection() {
                             <span>{fmtMoney(fonds.amount_covered)}</span>
                           </div>
                         )}
-                        <button className="btn btn-outline btn-sm" style={{marginTop:'0.4rem',alignSelf:'flex-start'}}
-                          onClick={async () => {
-                            const newEnd = prompt('Nieuwe einddatum (YYYY-MM-DD):', fonds.end_date)
-                            if (!newEnd) return
-                            try {
-                              await api.put(`/cash/fonds/${fonds.id}`, { end_date: newEnd, status: 'active' })
-                              alert('Fonds verlengd!')
-                              openMember(selected)
-                            } catch(e) { alert(e.response?.data?.error||'Fout') }
-                          }}>
-                          Verlengen
-                        </button>
+                        {!showFondsEdit ? (
+                          <div style={{display:'flex',gap:'0.5rem',marginTop:'0.4rem'}}>
+                            <button className="btn btn-outline btn-sm" onClick={() => openFondsEdit(fonds)}>Bewerken</button>
+                            <button className="btn btn-danger btn-sm" onClick={() => doFondsDelete(fonds.id)}>Verwijderen</button>
+                          </div>
+                        ) : (
+                          <div style={{display:'flex',flexDirection:'column',gap:'0.4rem',marginTop:'0.4rem',paddingTop:'0.4rem',borderTop:'1px solid var(--border)'}}>
+                            <div style={{display:'flex',gap:'0.5rem'}}>
+                              <div style={{flex:1}}>
+                                <label className="input-label" style={{fontSize:'0.72rem'}}>Startdatum</label>
+                                <input className="input" type="date" value={fondsEditForm.start_date}
+                                  onChange={e => setFondsEditForm(f => ({...f, start_date: e.target.value}))}/>
+                              </div>
+                              <div style={{flex:1}}>
+                                <label className="input-label" style={{fontSize:'0.72rem'}}>Einddatum</label>
+                                <input className="input" type="date" value={fondsEditForm.end_date}
+                                  onChange={e => setFondsEditForm(f => ({...f, end_date: e.target.value}))}/>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="input-label" style={{fontSize:'0.72rem'}}>Bedrag gedekt (€)</label>
+                              <input className="input" type="number" placeholder="0" value={fondsEditForm.amount_covered}
+                                onChange={e => setFondsEditForm(f => ({...f, amount_covered: e.target.value}))}/>
+                            </div>
+                            <div style={{display:'flex',gap:'0.5rem'}}>
+                              <button className="btn btn-primary btn-sm" onClick={() => doFondsEdit(fonds.id)}>Opslaan</button>
+                              <button className="btn btn-outline btn-sm" onClick={() => setShowFondsEdit(false)}>Annuleren</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })()}

@@ -5,6 +5,15 @@ const { sendPush } = require('./ptController');
 const { sendEmail, sendAdminWelcomeEmail, sendPtConfirmationEmail } = require('../services/emailService');
 const { deductRitForBooking } = require('./rittenkaartController');
 
+// Voegt N maanden op bij een YYYY-MM-DD string — geen Date-object, geen timezone-risico
+function addMonths(dateStr, months) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  let nm = m + months;
+  const ny = y + Math.floor((nm - 1) / 12);
+  nm = ((nm - 1) % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 // ── Lidmaatschapstypes (constanten) ────────────────────────────────────────
 const MEMBERSHIP_TYPES = [
   // Groepslessen
@@ -159,18 +168,10 @@ const assignMembership = async (req, res) => {
 
   const pType     = payment_type || (is_cash ? 'cash' : 'mollie');
   const startDate = start_date || new Date().toISOString().split('T')[0];
-  const endDate   = mtype.duration_months ? (() => {
-    const d = new Date(startDate);
-    d.setMonth(d.getMonth() + mtype.duration_months);
-    return d.toISOString().split('T')[0];
-  })() : null;
+  const endDate   = mtype.duration_months ? addMonths(startDate, mtype.duration_months) : null;
 
   // Bereken kwartaalvervaldatum als cash-kwartaal
-  const nextQuarterDue = (pType === 'cash' && quarterly_amount) ? (() => {
-    const d = new Date(startDate);
-    d.setMonth(d.getMonth() + 3);
-    return d.toISOString().split('T')[0];
-  })() : null;
+  const nextQuarterDue  = (pType === 'cash' && quarterly_amount) ? addMonths(startDate, 3) : null;
   const lastQuarterPaid = (pType === 'cash' && quarterly_amount) ? startDate : null;
 
   // Deactiveer bestaand actief lidmaatschap
@@ -212,11 +213,15 @@ const assignMembership = async (req, res) => {
   const newMembershipId = result.lastInsertRowid;
 
   // Fonds: maak een fonds_members record en koppel
-  if (pType === 'fonds' && fonds_type && fonds_end_date) {
+  if (pType === 'fonds' && fonds_type) {
+    const fondsEndDate    = addMonths(startDate, 12); // altijd start + 1 jaar, nooit van frontend
+    const fondsCovered    = fonds_amount_covered
+      ? Number(fonds_amount_covered)
+      : (admin_price ? Number(admin_price) : (mtype.price_monthly || null));
     const fondsRes = await db.execute({
       sql: `INSERT INTO fonds_members (user_id, fonds_type, fonds_name, start_date, end_date, amount_covered, created_by)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [req.params.id, fonds_type, fonds_name || fonds_type, startDate, fonds_end_date, fonds_amount_covered || null, req.user.id],
+      args: [req.params.id, fonds_type, fonds_name || fonds_type, startDate, fondsEndDate, fondsCovered, req.user.id],
     });
     await db.execute({
       sql: `UPDATE user_memberships SET fonds_member_id = ? WHERE id = ?`,
