@@ -1759,11 +1759,13 @@ function InkomenSection() {
   const { breakdown: bd, outstanding, expected_next_month: enm, fonds: f, cash_history } = data
 
   const rows = [
-    { label:'💳 Mollie abonnementen', total:bd.mollie.total,          count:bd.mollie.count,          color:'#3b82f6' },
-    { label:'💵 Cash lidmaatschap',   total:bd.cash_membership.total,  count:bd.cash_membership.count,  color:'#22c55e' },
-    { label:'📆 Cash kwartaal',       total:bd.cash_quarter.total,     count:bd.cash_quarter.count,     color:'#a3e635' },
-    { label:'💪 Cash PT sessies',     total:bd.cash_pt.total,          count:bd.cash_pt.count,          color:'#f59e0b', extra: bd.cash_pt.sessions ? `${bd.cash_pt.sessions} sessies` : null },
-    { label:'🛍️ Winkel',             total:bd.shop.total,             count:bd.shop.count,             color:'#e879f9' },
+    { label:'💳 Mollie abonnementen',    total:bd.mollie.total,            count:bd.mollie.count,            color:'#3b82f6' },
+    { label:'💵 Cash lidmaatschap',      total:bd.cash_membership.total,   count:bd.cash_membership.count,   color:'#22c55e' },
+    { label:'📆 Cash kwartaal',          total:bd.cash_quarter.total,      count:bd.cash_quarter.count,      color:'#a3e635' },
+    { label:'💪 Cash PT sessies',        total:bd.cash_pt.total,           count:bd.cash_pt.count,           color:'#f59e0b', extra: bd.cash_pt.sessions ? `${bd.cash_pt.sessions} sessies` : null },
+    { label:'🛍️ Winkel',               total:bd.shop.total,              count:bd.shop.count,              color:'#e879f9' },
+    { label:'🏛️ Jeugdfonds Sport',     total:bd.fonds_jeugd?.total,      count:bd.fonds_jeugd?.count,      color:'#6366f1' },
+    { label:'🏛️ Volwassenenfonds Sport',total:bd.fonds_volwassenen?.total,count:bd.fonds_volwassenen?.count,color:'#8b5cf6' },
   ]
 
   const months = []
@@ -1819,6 +1821,7 @@ function InkomenSection() {
           {[
             ['💳 Mollie', enm.mollie],
             ['💵 Cash kwartaal', enm.cash, `${enm.cash_count} leden`],
+            ['🏛️ Fonds', enm.fonds, enm.fonds_count > 0 ? `${enm.fonds_count} leden` : null],
             ['📊 Totaal', enm.total],
           ].map(([lbl, val, sub]) => (
             <div key={lbl} style={{flex:1,minWidth:120,background:'var(--surface-2)',borderRadius:8,padding:'0.75rem'}}>

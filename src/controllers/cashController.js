@@ -561,7 +561,20 @@ const getIncomeBreakdown = async (req, res) => {
   const nextMonthDate = new Date(y, m, 1);
   const nextMonth = nextMonthDate.toISOString().substring(0, 7);
 
-  const [mollie, cashMembership, cashPt, cashQuarter, shop, outstanding, prevMonths] = await Promise.all([
+  const fondsMonthSql = (fondsType, month) => ({
+    sql: `SELECT COALESCE(SUM(COALESCE(um.admin_price, m.price_monthly, 0)), 0) AS total, COUNT(*) AS count
+          FROM fonds_members fm
+          JOIN user_memberships um ON um.fonds_member_id = fm.id
+          LEFT JOIN memberships m ON m.id = um.membership_id
+          WHERE fm.status = 'active'
+            AND fm.fonds_type = ?
+            AND fm.start_date <= date(? || '-01', '+1 month', '-1 day')
+            AND fm.end_date   >= date(? || '-01')`,
+    args: [fondsType, month, month],
+  });
+
+  const [mollie, cashMembership, cashPt, cashQuarter, shop, outstanding, prevMonths,
+         fondsJeugdThis, fondsVolwThis] = await Promise.all([
     // Mollie (betalingen via de webhook)
     db.execute({
       sql: `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
@@ -606,6 +619,10 @@ const getIncomeBreakdown = async (req, res) => {
       WHERE payment_date >= date('now', '-6 months')
       GROUP BY month ORDER BY month DESC
     `),
+    // Jeugdsportfonds actief in target maand
+    db.execute(fondsMonthSql('jeugdsportfonds', targetMonth)),
+    // Volwassenenfonds actief in target maand
+    db.execute(fondsMonthSql('volwassenenfonds', targetMonth)),
   ]);
 
   // Verwachte inkomsten volgende maand (actieve Mollie abonnementen)
@@ -625,6 +642,12 @@ const getIncomeBreakdown = async (req, res) => {
     args: [nextMonth],
   });
 
+  // Verwachte fonds inkomsten volgende maand
+  const [expFondsJeugd, expFondsVolw] = await Promise.all([
+    db.execute(fondsMonthSql('jeugdsportfonds',  nextMonth)),
+    db.execute(fondsMonthSql('volwassenenfonds', nextMonth)),
+  ]);
+
   // Actieve fonds leden
   const fondsActive = await db.execute(`
     SELECT COUNT(*) AS count FROM fonds_members WHERE status = 'active'
@@ -634,29 +657,41 @@ const getIncomeBreakdown = async (req, res) => {
     WHERE status = 'active' AND julianday(end_date) - julianday('now') <= 30
   `);
 
+  const fondsJeugdTotal = Number(fondsJeugdThis.rows[0].total);
+  const fondsVolwTotal  = Number(fondsVolwThis.rows[0].total);
+
   const totalThisMonth =
     Number(mollie.rows[0].total) +
     Number(cashMembership.rows[0].total) +
     Number(cashPt.rows[0].total) +
     Number(cashQuarter.rows[0].total) +
-    Number(shop.rows[0].total);
+    Number(shop.rows[0].total) +
+    fondsJeugdTotal +
+    fondsVolwTotal;
+
+  const expFondsTotal = Number(expFondsJeugd.rows[0].total) + Number(expFondsVolw.rows[0].total);
+  const expFondsCount = Number(expFondsJeugd.rows[0].count) + Number(expFondsVolw.rows[0].count);
 
   res.json({
     month: targetMonth,
     total: totalThisMonth,
     breakdown: {
-      mollie:          { total: mollie.rows[0].total,          count: mollie.rows[0].count },
-      cash_membership: { total: cashMembership.rows[0].total,  count: cashMembership.rows[0].count },
-      cash_pt:         { total: cashPt.rows[0].total,          count: cashPt.rows[0].count, sessions: cashPt.rows[0].sessions },
-      cash_quarter:    { total: cashQuarter.rows[0].total,     count: cashQuarter.rows[0].count },
-      shop:            { total: shop.rows[0].total,            count: shop.rows[0].count },
+      mollie:            { total: mollie.rows[0].total,          count: mollie.rows[0].count },
+      cash_membership:   { total: cashMembership.rows[0].total,  count: cashMembership.rows[0].count },
+      cash_pt:           { total: cashPt.rows[0].total,          count: cashPt.rows[0].count, sessions: cashPt.rows[0].sessions },
+      cash_quarter:      { total: cashQuarter.rows[0].total,     count: cashQuarter.rows[0].count },
+      shop:              { total: shop.rows[0].total,            count: shop.rows[0].count },
+      fonds_jeugd:       { total: fondsJeugdThis.rows[0].total,  count: fondsJeugdThis.rows[0].count },
+      fonds_volwassenen: { total: fondsVolwThis.rows[0].total,   count: fondsVolwThis.rows[0].count },
     },
     outstanding: { total: outstanding.rows[0].total, count: outstanding.rows[0].count },
     expected_next_month: {
-      mollie: expectedMollie.rows[0].expected,
-      cash:   expectedCash.rows[0].expected,
-      cash_count: expectedCash.rows[0].count,
-      total:  Number(expectedMollie.rows[0].expected) + Number(expectedCash.rows[0].expected),
+      mollie:      expectedMollie.rows[0].expected,
+      cash:        expectedCash.rows[0].expected,
+      cash_count:  expectedCash.rows[0].count,
+      fonds:       expFondsTotal,
+      fonds_count: expFondsCount,
+      total: Number(expectedMollie.rows[0].expected) + Number(expectedCash.rows[0].expected) + expFondsTotal,
     },
     fonds: {
       active:   fondsActive.rows[0].count,
