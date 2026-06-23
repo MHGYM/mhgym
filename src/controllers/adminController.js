@@ -214,6 +214,13 @@ const assignMembership = async (req, res) => {
 
   // Fonds: maak een fonds_members record en koppel
   if (pType === 'fonds' && fonds_type) {
+    // Annuleer bestaand actief fonds van hetzelfde type — voorkomt duplicaten in de ledenlijst
+    await db.execute({
+      sql: `UPDATE fonds_members SET status = 'cancelled', updated_at = datetime('now')
+            WHERE user_id = ? AND fonds_type = ? AND status = 'active'`,
+      args: [req.params.id, fonds_type],
+    });
+
     const fondsEndDate    = addMonths(startDate, 12); // altijd start + 1 jaar, nooit van frontend
     const fondsCovered    = fonds_amount_covered
       ? Number(fonds_amount_covered)

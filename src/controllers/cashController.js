@@ -212,6 +212,13 @@ const createFondsMembership = async (req, res) => {
     return res.status(400).json({ error: 'user_id, fonds_type, start_date en end_date zijn verplicht.' });
   }
 
+  // Blokkeer duplicaat: annuleer bestaand actief record van hetzelfde type
+  await db.execute({
+    sql: `UPDATE fonds_members SET status = 'cancelled', updated_at = datetime('now')
+          WHERE user_id = ? AND fonds_type = ? AND status = 'active'`,
+    args: [user_id, fonds_type],
+  });
+
   const result = await db.execute({
     sql: `INSERT INTO fonds_members (user_id, fonds_type, fonds_name, start_date, end_date, amount_covered, notes, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -648,12 +655,12 @@ const getIncomeBreakdown = async (req, res) => {
     db.execute(fondsMonthSql('volwassenenfonds', nextMonth)),
   ]);
 
-  // Actieve fonds leden
+  // Actieve fonds leden — DISTINCT user_id zodat duplicaten niet dubbel tellen
   const fondsActive = await db.execute(`
-    SELECT COUNT(*) AS count FROM fonds_members WHERE status = 'active'
+    SELECT COUNT(DISTINCT user_id) AS count FROM fonds_members WHERE status = 'active'
   `);
   const fondsExpiring = await db.execute(`
-    SELECT COUNT(*) AS count FROM fonds_members
+    SELECT COUNT(DISTINCT user_id) AS count FROM fonds_members
     WHERE status = 'active' AND julianday(end_date) - julianday('now') <= 30
   `);
 
