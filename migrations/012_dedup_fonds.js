@@ -156,6 +156,29 @@ async function run() {
     console.log('═══ USER_MEMBERSHIPS: geen herkoppeling nodig ═══');
   }
 
+  // ── Stap 5: wees-records (actief fonds maar alle gekoppelde memberships zijn cancelled) ──
+  const weesRecords = await db.execute(`
+    SELECT fm.id, fm.user_id, u.first_name, u.last_name, u.email,
+           fm.fonds_type, fm.fonds_name, fm.start_date, fm.end_date,
+           fm.amount_covered, fm.created_at,
+           um.id AS um_id, um.status AS um_status
+    FROM fonds_members fm
+    JOIN users u ON u.id = fm.user_id
+    LEFT JOIN user_memberships um ON um.fonds_member_id = fm.id
+    WHERE fm.status = 'active'
+      AND (
+        um.id IS NULL
+        OR (um.status NOT IN ('active','cancelling'))
+      )
+  `);
+
+  if (weesRecords.rows.length > 0) {
+    console.log('\n═══ WEES-RECORDS (actief fonds maar membership geannuleerd) — WORDEN OOK GEANNULEERD ═══');
+    console.table(weesRecords.rows);
+  } else {
+    console.log('\n═══ WEES-RECORDS: geen gevonden ═══');
+  }
+
   if (DRY_RUN) {
     console.log('\n🔍 Dry-run klaar. Voer --execute uit om bovenstaande te bevestigen.\n');
     return;
@@ -198,6 +221,19 @@ async function run() {
          FROM fonds_members
          WHERE status = 'active'
          GROUP BY user_id, fonds_type
+       )`,
+  );
+
+  await exec(
+    'Annuleer wees-fonds_members (actief maar membership geannuleerd)',
+    `UPDATE fonds_members
+     SET status = 'cancelled', updated_at = datetime('now')
+     WHERE status = 'active'
+       AND id NOT IN (
+         SELECT fonds_member_id
+         FROM user_memberships
+         WHERE fonds_member_id IS NOT NULL
+           AND status IN ('active','cancelling')
        )`,
   );
 
