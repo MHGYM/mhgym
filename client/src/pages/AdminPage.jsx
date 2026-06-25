@@ -8,6 +8,11 @@ import {
   MessageCircle, Send, ArrowLeft, Ticket
 } from 'lucide-react'
 import api from '../api'
+import { TrainingCtx } from './TrainingPage'
+import AdminSubscriptions from './training/AdminSubscriptions'
+import ExerciseAdmin from './training/ExerciseAdmin'
+import ProgramAdmin from './training/ProgramAdmin'
+import NutritionAdmin from './training/NutritionAdmin'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmtDate  = (s) => s ? new Date(s).toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : '—'
@@ -2848,6 +2853,54 @@ function InstellingenSection() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+// ONLINE TRAININGEN SECTIE (admin sub-tabs)
+// ════════════════════════════════════════════════════════════════════
+const TRAINING_TABS = [
+  { key:'subscriptions', label:'Abonnementen' },
+  { key:'exercises',     label:'Oefeningen'   },
+  { key:'programs',      label:"Programma's"  },
+  { key:'nutrition',     label:'Voeding'      },
+]
+
+function TrainingAdminSection() {
+  const [tab, setTab]     = useState('subscriptions')
+  const [config, setConfig] = useState({ bunnyLibraryId: '' })
+
+  useEffect(() => {
+    api.get('/training/config')
+      .then(r => setConfig({ bunnyLibraryId: r.data.bunny_library_id || '' }))
+      .catch(() => {})
+  }, [])
+
+  return (
+    <TrainingCtx.Provider value={config}>
+      <div>
+        <h2 style={{ margin:'0 0 16px', fontSize:'1.15rem', display:'flex', alignItems:'center', gap:8 }}>
+          <PlayCircle size={20} style={{ color:'var(--primary)' }} />
+          Online Trainingen
+        </h2>
+        <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:20, borderBottom:'1px solid var(--border)', paddingBottom:4 }}>
+          {TRAINING_TABS.map(({ key, label }) => (
+            <button key={key} onClick={() => setTab(key)}
+              style={{ padding:'6px 14px', border:'none', borderRadius:'6px 6px 0 0', cursor:'pointer', fontSize:'0.82rem',
+                fontWeight: tab===key ? 700 : 500,
+                background: tab===key ? 'var(--primary)' : 'transparent',
+                color: tab===key ? '#fff' : 'var(--text-muted)',
+                borderBottom: tab===key ? '2px solid var(--primary)' : '2px solid transparent' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === 'subscriptions' && <AdminSubscriptions />}
+        {tab === 'exercises'     && <ExerciseAdmin />}
+        {tab === 'programs'      && <ProgramAdmin />}
+        {tab === 'nutrition'     && <NutritionAdmin />}
+      </div>
+    </TrainingCtx.Provider>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
 // HOOFD COMPONENT
 // ════════════════════════════════════════════════════════════════════
 const MENU = [
@@ -2859,9 +2912,10 @@ const MENU = [
   { key:'vt',         label:'Vrij Trainen',  Icon:Calendar        },
   { key:'betalingen', label:'Betalingen',    Icon:CreditCard      },
   { key:'community',  label:'Community',     Icon:Users2          },
-  { key:'rooster',        label:'Rooster',        Icon:Calendar      },
-  { key:'instellingen',  label:'Instellingen',   Icon:Ticket        },
-  { key:'berichten',     label:'Berichten',      Icon:MessageCircle },
+  { key:'rooster',        label:'Rooster',           Icon:Calendar      },
+  { key:'training',       label:'Online Trainingen', Icon:PlayCircle    },
+  { key:'instellingen',  label:'Instellingen',      Icon:Ticket        },
+  { key:'berichten',     label:'Berichten',         Icon:MessageCircle },
 ]
 
 export default function AdminPage() {
@@ -2906,6 +2960,7 @@ export default function AdminPage() {
         {section==='betalingen' && <BetalingenCombinedSection/>}
         {section==='community'  && <CommunityBeheer/>}
         {section==='rooster'      && <RoosterSection/>}
+        {section==='training'     && <TrainingAdminSection/>}
         {section==='instellingen' && <InstellingenSection/>}
         {section==='berichten'    && <BerichtenSection/>}
       </main>
