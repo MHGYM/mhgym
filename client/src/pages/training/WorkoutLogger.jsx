@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Dumbbell, Plus, Minus, Check, Timer, ChevronDown, ChevronUp, Save, BedDouble, Video } from 'lucide-react'
 import api from '../../api'
-import { useTraining } from '../TrainingPage'
+import { useTraining } from '../../context/TrainingContext'
 
 function RestTimer({ seconds, onDone }) {
   const [remaining, setRemaining] = useState(seconds)

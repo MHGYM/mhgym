@@ -8,7 +8,7 @@ import {
   MessageCircle, Send, ArrowLeft, Ticket
 } from 'lucide-react'
 import api from '../api'
-import { TrainingCtx } from './TrainingPage'
+import { TrainingCtx } from '../context/TrainingContext'
 import AdminSubscriptions from './training/AdminSubscriptions'
 import ExerciseAdmin from './training/ExerciseAdmin'
 import ProgramAdmin from './training/ProgramAdmin'

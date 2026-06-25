@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PlayCircle, ChevronLeft, Dumbbell, Clock, Calendar, Target, Video, BedDouble, CheckCircle } from 'lucide-react'
 import api from '../../api'
-import { useTraining } from '../TrainingPage'
+import { useTraining } from '../../context/TrainingContext'
 
 const GOAL_LABEL = { vetverbranding:'Vetverbranding', spiermassa:'Spiermassa', kracht:'Kracht', hiit:'HIIT', full_body:'Full body', splits:'Splits', thuis:'Thuis' }
 const GOAL_COLOR = { vetverbranding:'#ef4444', spiermassa:'#3b82f6', kracht:'#8b5cf6', hiit:'#f59e0b', full_body:'#10b981', splits:'#ec4899', thuis:'#6366f1' }

@@ -1,7 +1,8 @@
-import { useState, useEffect, createContext, useContext } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
 import { PlayCircle, Dumbbell, TrendingUp, Salad, Users, ListChecks, BookOpen, Utensils } from 'lucide-react'
+import { TrainingCtx, useTraining as _useTraining } from '../context/TrainingContext'
 import AccessGate from './training/AccessGate'
 import AdminSubscriptions from './training/AdminSubscriptions'
 import ExerciseAdmin from './training/ExerciseAdmin'
@@ -12,9 +13,9 @@ import ProgressSection from './training/ProgressSection'
 import NutritionSection from './training/NutritionSection'
 import NutritionAdmin from './training/NutritionAdmin'
 
-// ── Training config context (bunny library ID) ───────────────────────────────
-export const TrainingCtx = createContext({ bunnyLibraryId: '' })
-export const useTraining = () => useContext(TrainingCtx)
+// Re-export voor backwards compatibility met eventuele directe imports
+export { TrainingCtx } from '../context/TrainingContext'
+export { useTraining } from '../context/TrainingContext'
 
 const MEMBER_TABS = [
   { key: 'programs',  label: "Programma's", Icon: PlayCircle  },

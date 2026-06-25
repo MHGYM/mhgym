@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Edit2, Eye, EyeOff, Save, X, Video, ChevronDown, ChevronUp } from 'lucide-react'
 import api from '../../api'
-import { useTraining } from '../TrainingPage'
+import { useTraining } from '../../context/TrainingContext'
 
 const CATEGORIES = ['borstspieren','rugspieren','schouders','armen','buik','benen','billen','rug onderrug','cardio','overig']
 const EQUIPMENT  = ['gym','home','both']
