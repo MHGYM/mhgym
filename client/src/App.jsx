@@ -16,6 +16,7 @@ import MessagesPage from './pages/MessagesPage'
 import InstallPage from './pages/InstallPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import MayaChatWidget from './components/MayaChatWidget'
+import TrainingPage from './pages/TrainingPage'
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/personal-training" element={<PersonalTrainingPage />} />
             <Route path="/profile"           element={<ProfilePage />} />
             <Route path="/admin"             element={<AdminPage />} />
+            <Route path="/training"          element={<TrainingPage />} />
           </Route>
         </Route>
 

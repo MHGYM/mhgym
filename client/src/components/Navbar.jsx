@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut, ShoppingBag, Shield, Zap, Users2, MessageCircle } from 'lucide-react'
+import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut, ShoppingBag, Shield, Zap, Users2, MessageCircle, PlayCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
 
@@ -48,6 +48,7 @@ export default function Navbar() {
     { to: '/shop',              label: 'Winkel',         Icon: ShoppingBag     },
     { to: '/profile',           label: 'Profiel',        Icon: UserCircle      },
     { to: '/messages',          label: 'Berichten',      Icon: MessageCircle, badge: unread },
+    { to: '/training', label: 'Trainingen', Icon: PlayCircle },
     ...(user?.role === 'admin' ? [{ to: '/admin', label: 'Admin', Icon: Shield }] : []),
   ]
 

@@ -60,6 +60,7 @@ app.use('/api/chat',        require('./routes/chat'));
 app.use('/api/messages',      require('./routes/messages'));
 app.use('/api/setup',         require('./routes/setup'));
 app.use('/api/rittenkaarten', require('./routes/rittenkaarten'));
+app.use('/api/training',     require('./routes/training'));
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() }));

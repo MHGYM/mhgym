@@ -36,4 +36,23 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireAdmin };
+/**
+ * Blocks access when user has no active training subscription.
+ * Admins always pass through.
+ */
+const requireTrainingAccess = async (req, res, next) => {
+  if (req.user?.role === 'admin') return next();
+  const result = await db.execute({
+    sql: `SELECT id FROM training_subscriptions
+          WHERE user_id = ? AND status = 'active'
+            AND (end_date IS NULL OR date(end_date) >= date('now'))
+          LIMIT 1`,
+    args: [req.user.id],
+  });
+  if (!result.rows[0]) {
+    return res.status(403).json({ error: 'Geen actief trainingsabonnement.' });
+  }
+  next();
+};
+
+module.exports = { authenticate, requireAdmin, requireTrainingAccess };
