@@ -62,10 +62,12 @@ async function initDb() {
   try {
     const tableInfo = await db.execute(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`);
     const createSql = tableInfo.rows[0]?.sql || '';
-    if (createSql.includes('UNIQUE') && !createSql.includes('users_new')) {
+    if (createSql.includes('UNIQUE')) {
       await db.execute(`PRAGMA foreign_keys = OFF`);
+      // Ruim eventuele restanten van een eerder mislukte migratie op
+      await db.execute(`DROP TABLE IF EXISTS users_new`);
       await db.execute(`
-        CREATE TABLE IF NOT EXISTS users_new (
+        CREATE TABLE users_new (
           id                       INTEGER PRIMARY KEY AUTOINCREMENT,
           email                    TEXT    NOT NULL,
           password                 TEXT    NOT NULL,
@@ -91,9 +93,12 @@ async function initDb() {
       await db.execute(`DROP TABLE users`);
       await db.execute(`ALTER TABLE users_new RENAME TO users`);
       await db.execute(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+      await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_person ON users(email, first_name, last_name)`);
       await db.execute(`PRAGMA foreign_keys = ON`);
       console.log('[DB] Migratie 014: UNIQUE op users.email verwijderd (gezinsaccounts).');
     }
+    // Voeg partial-unique index toe ook als de tabelwissel al eerder plaatsvond
+    await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_person ON users(email, first_name, last_name)`);
   } catch (e) {
     console.error('[DB] Migratie 014 mislukt:', e.message);
   }

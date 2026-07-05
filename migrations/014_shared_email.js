@@ -24,15 +24,26 @@ async function migrate() {
   // Controleer of de UNIQUE constraint al verwijderd is
   const tableInfo = await db.execute(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`);
   const createSql = tableInfo.rows[0]?.sql || '';
-  if (!createSql.includes('UNIQUE') || createSql.toLowerCase().includes('users_new')) {
-    console.log('✅ UNIQUE constraint al verwijderd — migratie overgeslagen.');
+
+  if (!createSql.includes('UNIQUE')) {
+    console.log('✅ UNIQUE constraint al verwijderd — tabelstructuur controleren...');
+    // Voeg partial-unique index toe als die nog niet bestaat
+    await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_person ON users(email, first_name, last_name)`);
+    console.log('✅ idx_users_unique_person gecontroleerd/aangemaakt.');
     await db.close();
     return;
   }
 
-  // Stap 1: maak nieuwe tabel zonder UNIQUE op email
+  // FK-constraints uit voor de tabelwissel
+  await db.execute(`PRAGMA foreign_keys = OFF`);
+
+  // Verwijder eventuele half-aangemaakte users_new van eerdere mislukte poging
+  await db.execute(`DROP TABLE IF EXISTS users_new`);
+  console.log('✓ Eventuele restanten users_new opgeruimd');
+
+  // Nieuwe tabel zonder UNIQUE op email
   await db.execute(`
-    CREATE TABLE IF NOT EXISTS users_new (
+    CREATE TABLE users_new (
       id                       INTEGER PRIMARY KEY AUTOINCREMENT,
       email                    TEXT    NOT NULL,
       password                 TEXT    NOT NULL,
@@ -54,23 +65,24 @@ async function migrate() {
       payment_method           TEXT    NOT NULL DEFAULT 'sepa'
     )
   `);
-  console.log('✓ users_new aangemaakt');
+  console.log('✓ users_new aangemaakt (zonder UNIQUE)');
 
-  // Stap 2: data kopiëren
+  // Data kopiëren
   await db.execute(`INSERT INTO users_new SELECT * FROM users`);
-  console.log('✓ Data gekopieerd');
+  console.log('✓ Data gekopieerd naar users_new');
 
-  // Stap 3: FK-constraints tijdelijk uit voor hernoemen
-  await db.execute(`PRAGMA foreign_keys = OFF`);
-
-  // Stap 4: oude tabel droppen, nieuwe hernoemen
+  // Oude tabel weg, nieuwe hernoemen
   await db.execute(`DROP TABLE users`);
   await db.execute(`ALTER TABLE users_new RENAME TO users`);
-  console.log('✓ Tabel hernoemd');
+  console.log('✓ Tabel hernoemd: users_new → users');
 
-  // Stap 5: index op email (niet-uniek) voor snelle lookup
+  // Niet-unieke index voor snelle email-lookup
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
-  console.log('✓ Index idx_users_email aangemaakt');
+  console.log('✓ idx_users_email aangemaakt (niet-uniek)');
+
+  // Partial-unique index: dezelfde combinatie (email + voornaam + achternaam) blokkeert echte duplicaten
+  await db.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_person ON users(email, first_name, last_name)`);
+  console.log('✓ idx_users_unique_person aangemaakt (email + naam uniek)');
 
   await db.execute(`PRAGMA foreign_keys = ON`);
 
@@ -79,6 +91,6 @@ async function migrate() {
 }
 
 migrate().catch(e => {
-  console.error('❌', e.message);
+  console.error('❌ Migratie 014 mislukt:', e.message);
   process.exit(1);
 });

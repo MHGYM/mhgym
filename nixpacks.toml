@@ -11,4 +11,4 @@ cmds = ["cd client && npm run build"]
 NODE_ENV = "production"
 
 [start]
-cmd = "node server.js"
+cmd = "node migrations/014_shared_email.js; node server.js"
