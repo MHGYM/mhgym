@@ -9,8 +9,10 @@ export function AuthProvider({ children }) {
   })
   const [membership, setMembership] = useState(null)
 
-  const login = useCallback(async (email, password) => {
-    const { data } = await api.post('/auth/login', { email, password })
+  const login = useCallback(async (email, password, user_id) => {
+    const { data } = await api.post('/auth/login', { email, password, ...(user_id ? { user_id } : {}) })
+    // Profile-picker: meerdere accounts op dit e-mailadres
+    if (data.needs_profile_selection) return data
     localStorage.setItem('mhgym_token', data.token)
     localStorage.setItem('mhgym_user', JSON.stringify(data.user))
     setUser(data.user)

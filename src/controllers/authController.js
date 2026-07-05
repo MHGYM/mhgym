@@ -13,11 +13,6 @@ const generateToken = (user) =>
 const register = async (req, res) => {
   const { email, password, first_name, last_name, phone } = req.body;
 
-  const existing = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [email] });
-  if (existing.rows.length > 0) {
-    return res.status(409).json({ error: 'E-mailadres is al in gebruik.' });
-  }
-
   const hash = await bcrypt.hash(password, 12);
   const result = await db.execute({
     sql: 'INSERT INTO users (email, password, first_name, last_name, phone) VALUES (?, ?, ?, ?, ?)',
@@ -37,15 +32,49 @@ const register = async (req, res) => {
 
 // POST /api/auth/login
 const login = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, user_id } = req.body;
 
-  const userRes = await db.execute({ sql: 'SELECT * FROM users WHERE email = ?', args: [email] });
-  const user = userRes.rows[0];
+  const usersRes = await db.execute({ sql: 'SELECT * FROM users WHERE email = ?', args: [email] });
+  const users = usersRes.rows;
 
-  if (!user || !(await bcrypt.compare(password, user.password))) {
+  if (!users.length) {
     return res.status(401).json({ error: 'Onjuiste e-mail of wachtwoord.' });
   }
 
+  // Specifiek profiel gekozen na de profile-picker
+  if (user_id) {
+    const target = users.find(u => Number(u.id) === Number(user_id));
+    if (!target || !(await bcrypt.compare(password, target.password))) {
+      return res.status(401).json({ error: 'Onjuiste e-mail of wachtwoord.' });
+    }
+    const { password: _pw, mollie_customer_id: _mc, ...safeUser } = target;
+    return res.json({ user: safeUser, token: generateToken(target) });
+  }
+
+  // Meerdere accounts op hetzelfde e-mailadres → controleer wachtwoorden
+  if (users.length > 1) {
+    const valid = [];
+    for (const u of users) {
+      if (await bcrypt.compare(password, u.password)) {
+        valid.push({ id: Number(u.id), first_name: u.first_name, last_name: u.last_name });
+      }
+    }
+    if (!valid.length) return res.status(401).json({ error: 'Onjuiste e-mail of wachtwoord.' });
+    // Meerdere profielen met zelfde wachtwoord → laat gebruiker kiezen
+    if (valid.length > 1) {
+      return res.json({ needs_profile_selection: true, profiles: valid });
+    }
+    // Precies één wachtwoord-match → direct inloggen
+    const target = users.find(u => Number(u.id) === valid[0].id);
+    const { password: _pw, mollie_customer_id: _mc, ...safeUser } = target;
+    return res.json({ user: safeUser, token: generateToken(target) });
+  }
+
+  // Enkel account — normale flow
+  const user = users[0];
+  if (!(await bcrypt.compare(password, user.password))) {
+    return res.status(401).json({ error: 'Onjuiste e-mail of wachtwoord.' });
+  }
   const { password: _pw, mollie_customer_id: _mc, ...safeUser } = user;
   res.json({ user: safeUser, token: generateToken(user) });
 };
@@ -157,25 +186,21 @@ const forgotPassword = async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'E-mailadres is verplicht.' });
 
-  // Always respond with success to avoid leaking which emails exist
-  const userRes = await db.execute({ sql: 'SELECT id, first_name, email FROM users WHERE email = ?', args: [email.toLowerCase().trim()] });
-  const user = userRes.rows[0];
+  // Haal ALLE gebruikers op met dit e-mailadres (meerdere bij gezinsaccounts)
+  const usersRes = await db.execute({ sql: 'SELECT id, first_name, email FROM users WHERE email = ?', args: [email.toLowerCase().trim()] });
+  const users = usersRes.rows;
 
-  if (user) {
-    const token     = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+  const baseUrl = process.env.FRONTEND_URL || 'https://app.mhgym.nl';
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    // Invalidate any existing tokens for this user
+  for (const user of users) {
+    const token = crypto.randomBytes(32).toString('hex');
     await db.execute({ sql: 'DELETE FROM password_reset_tokens WHERE user_id = ?', args: [user.id] });
-
     await db.execute({
       sql: 'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
       args: [user.id, token, expiresAt],
     });
-
-    const baseUrl  = process.env.FRONTEND_URL || 'https://app.mhgym.nl';
     const resetUrl = `${baseUrl}/reset-password?token=${token}`;
-
     sendPasswordResetEmail({ to: user.email, firstName: user.first_name, resetUrl }).catch(() => {});
   }
 

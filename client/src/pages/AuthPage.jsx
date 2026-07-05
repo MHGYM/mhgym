@@ -82,6 +82,47 @@ function ForgotPasswordForm({ onBack }) {
   )
 }
 
+// ── Profile picker (gezinsaccounts op één e-mail) ─────────────────────────────
+function ProfilePicker({ profiles, onPick, onBack }) {
+  const initials = (p) => `${p.first_name?.[0] ?? ''}${p.last_name?.[0] ?? ''}`.toUpperCase()
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{ display:'flex', alignItems:'center', gap:'0.4rem', background:'none', border:'none',
+          cursor:'pointer', color:'var(--text-muted)', fontSize:'0.875rem', padding:0, marginBottom:'1.5rem' }}>
+        <ArrowLeft size={15} /> Terug
+      </button>
+      <h1 style={{ fontSize:'1.4rem', marginBottom:'0.3rem' }}>Kies profiel</h1>
+      <p style={{ color:'var(--text-muted)', fontSize:'0.875rem', marginBottom:'1.5rem' }}>
+        Meerdere leden zijn gekoppeld aan dit e-mailadres. Wie wil je inloggen?
+      </p>
+      <div style={{ display:'flex', flexDirection:'column', gap:'0.75rem' }}>
+        {profiles.map(p => (
+          <button
+            key={p.id}
+            onClick={() => onPick(p.id)}
+            style={{ display:'flex', alignItems:'center', gap:'0.9rem', padding:'0.9rem 1rem',
+              background:'var(--card-bg,#1a1a2e)', border:'1px solid var(--border)', borderRadius:10,
+              cursor:'pointer', textAlign:'left', transition:'border-color .15s' }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+          >
+            <div style={{ width:38, height:38, borderRadius:'50%', background:'var(--primary)', display:'flex',
+              alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:'0.9rem', color:'#fff', flexShrink:0 }}>
+              {initials(p)}
+            </div>
+            <span style={{ fontWeight:600, fontSize:'0.95rem', color:'var(--text)' }}>
+              {p.first_name} {p.last_name}
+            </span>
+            <ArrowRight size={15} style={{ marginLeft:'auto', color:'var(--text-muted)' }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main auth page ────────────────────────────────────────────────────────────
 export default function AuthPage({ mode }) {
   const { user, login, register } = useAuth()
@@ -98,6 +139,7 @@ export default function AuthPage({ mode }) {
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState('')
   const [forgot,   setForgot]   = useState(false)
+  const [profiles, setProfiles] = useState(null) // profile-picker state
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
 
@@ -107,7 +149,11 @@ export default function AuthPage({ mode }) {
     setLoading(true)
     try {
       if (tab === 'login') {
-        await login(form.email, form.password)
+        const result = await login(form.email, form.password)
+        if (result?.needs_profile_selection) {
+          setProfiles({ list: result.profiles, email: form.email, password: form.password })
+          return
+        }
       } else {
         if (!form.first_name || !form.last_name) { setError('Vul je voor- en achternaam in.'); return }
         if (form.password.length < 8)             { setError('Wachtwoord minimaal 8 tekens.'); return }
@@ -116,6 +162,20 @@ export default function AuthPage({ mode }) {
       navigate('/dashboard')
     } catch (err) {
       setError(err.response?.data?.error || 'Er is een fout opgetreden. Probeer het opnieuw.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleProfilePick = async (userId) => {
+    setLoading(true)
+    setError('')
+    try {
+      await login(profiles.email, profiles.password, userId)
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.response?.data?.error || 'Inloggen mislukt.')
+      setProfiles(null)
     } finally {
       setLoading(false)
     }
@@ -154,8 +214,14 @@ export default function AuthPage({ mode }) {
       <div className="auth-form-side">
         <div className="auth-box">
 
-          {/* ── Forgot-password view ── */}
-          {forgot ? (
+          {/* ── Profile picker (gezinsaccounts) ── */}
+          {profiles ? (
+            <ProfilePicker
+              profiles={profiles.list}
+              onPick={handleProfilePick}
+              onBack={() => { setProfiles(null); setError('') }}
+            />
+          ) : forgot ? (
             <ForgotPasswordForm onBack={() => setForgot(false)} />
           ) : (
             <>

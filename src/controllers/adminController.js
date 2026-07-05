@@ -314,12 +314,6 @@ const createMemberWithSepa = async (req, res) => {
     }
   }
 
-  // Controleer of e-mail al bestaat
-  const existing = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [email] });
-  if (existing.rows[0]) {
-    return res.status(409).json({ error: 'Er bestaat al een account met dit e-mailadres.' });
-  }
-
   // Haal membership op
   const mRes = await db.execute({ sql: 'SELECT * FROM memberships WHERE id = ?', args: [membership_id] });
   const membership = mRes.rows[0];
