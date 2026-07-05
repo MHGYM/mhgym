@@ -18,13 +18,54 @@ async function ensureSchema() {
   // ── Helper ────────────────────────────────────────────────────────────────────
   const run = async (sql) => { try { await db.execute(sql); } catch (_) {} };
 
+  // ── Migratie 014: verwijder UNIQUE op users.email (gezinsaccounts) ────────────
+  try {
+    const tableInfo = await db.execute(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`);
+    const createSql = tableInfo.rows[0]?.sql || '';
+    if (createSql.includes('UNIQUE')) {
+      console.log('[DB] Migratie 014: UNIQUE op users.email verwijderen…');
+      await db.execute(`PRAGMA foreign_keys = OFF`);
+      await db.execute(`DROP TABLE IF EXISTS users_new`);
+      await db.execute(`CREATE TABLE users_new (
+        id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+        email                    TEXT    NOT NULL,
+        password                 TEXT    NOT NULL,
+        first_name               TEXT    NOT NULL,
+        last_name                TEXT    NOT NULL,
+        phone                    TEXT,
+        role                     TEXT    NOT NULL DEFAULT 'member',
+        created_at               TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at               TEXT    NOT NULL DEFAULT (datetime('now')),
+        birth_date               TEXT,
+        address                  TEXT,
+        postal_code              TEXT,
+        city                     TEXT,
+        mollie_customer_id       TEXT,
+        is_cash_payer            INTEGER NOT NULL DEFAULT 0,
+        admin_notes              TEXT,
+        membership_paused        INTEGER NOT NULL DEFAULT 0,
+        membership_paused_reason TEXT,
+        payment_method           TEXT    NOT NULL DEFAULT 'sepa'
+      )`);
+      await db.execute(`INSERT INTO users_new SELECT * FROM users`);
+      await db.execute(`DROP TABLE users`);
+      await db.execute(`ALTER TABLE users_new RENAME TO users`);
+      await db.execute(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+      await db.execute(`PRAGMA foreign_keys = ON`);
+      console.log('[DB] Migratie 014 geslaagd — email niet langer uniek.');
+    }
+    await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_person ON users(email, first_name, last_name)`);
+  } catch (e) {
+    console.error('[DB] Migratie 014 mislukt:', e.message);
+  }
+
   // ── Core tables (001) ────────────────────────────────────────────────────────
   await db.execute(`PRAGMA foreign_keys = ON`);
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-      email                   TEXT    NOT NULL UNIQUE,
+      email                   TEXT    NOT NULL,
       password                TEXT    NOT NULL,
       first_name              TEXT    NOT NULL DEFAULT '',
       last_name               TEXT    NOT NULL DEFAULT '',
