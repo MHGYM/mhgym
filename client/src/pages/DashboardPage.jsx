@@ -78,6 +78,16 @@ export default function DashboardPage() {
         </Link>
       </div>
 
+      {/* Mijn Voortgang link (aanwezigheid + voeding) */}
+      <Link to="/dashboard/mijn-voortgang" className="stat-card" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', textDecoration: 'none' }}>
+        <TrendingUp size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <span className="stat-label" style={{ display: 'block' }}>Mijn Voortgang</span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Aanwezigheid, streaks &amp; voedingsschema</span>
+        </div>
+        <ArrowRight size={16} style={{ color: 'var(--text-muted)' }} />
+      </Link>
+
       {/* Rittenkaart info balk */}
       {rittenkaart && (
         <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', padding:'0.6rem 0.9rem', background:'var(--surface-2)', borderRadius:'var(--r)', marginBottom:'1rem', fontSize:'0.875rem', borderLeft: Number(rittenkaart.ritten_resterend) <= 2 ? '3px solid #f5c200' : '3px solid var(--success)' }}>

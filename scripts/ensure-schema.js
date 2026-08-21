@@ -533,6 +533,55 @@ async function ensureSchema() {
     )
   `);
 
+  // ── Mijn Voortgang: aanwezigheid + voedingsschema (015) ──────────────────────
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS attendance (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date       TEXT    NOT NULL,
+      class_id   INTEGER REFERENCES classes(id),
+      source     TEXT    NOT NULL DEFAULT 'class',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Voorkomt dubbele "we missen je" mails — bijgehouden per lid.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS attendance_reminders (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sent_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS nutrition_templates (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      coach_id   INTEGER REFERENCES users(id),
+      title      TEXT    NOT NULL,
+      meals      TEXT    NOT NULL DEFAULT '[]',
+      active     INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS nutrition_logs (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      template_id INTEGER NOT NULL REFERENCES nutrition_templates(id) ON DELETE CASCADE,
+      date        TEXT    NOT NULL,
+      meal_ref    TEXT    NOT NULL,
+      completed   INTEGER NOT NULL DEFAULT 0,
+      note        TEXT,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(member_id, template_id, date, meal_ref)
+    )
+  `);
+
   // ── Indexes ───────────────────────────────────────────────────────────────────
   const indexes = [
     `CREATE INDEX IF NOT EXISTS idx_vt_user_date    ON vrij_trainen_bookings(user_id, date)`,
@@ -544,6 +593,10 @@ async function ensureSchema() {
     `CREATE INDEX IF NOT EXISTS idx_cash_payments_date ON cash_payments(payment_date)`,
     `CREATE INDEX IF NOT EXISTS idx_fonds_user      ON fonds_members(user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_fonds_end       ON fonds_members(end_date)`,
+    `CREATE INDEX IF NOT EXISTS idx_attendance_member_date ON attendance(member_id, date)`,
+    `CREATE INDEX IF NOT EXISTS idx_attendance_reminders_member ON attendance_reminders(member_id, sent_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_nutrition_templates_member ON nutrition_templates(member_id, active)`,
+    `CREATE INDEX IF NOT EXISTS idx_nutrition_logs_member_date ON nutrition_logs(member_id, date)`,
   ];
   for (const sql of indexes) { await run(sql); }
 

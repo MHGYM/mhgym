@@ -667,6 +667,36 @@ async function sendEmail({ to, subject, html }) {
   return sendMail({ to, subject, html });
 }
 
+/**
+ * Inactiviteitsherinnering — verstuurd als een lid >7 dagen niet is geweest
+ */
+async function sendInactivityReminderEmail({ to, firstName, daysSince }) {
+  const appUrl = process.env.FRONTEND_URL || 'https://app.mhgym.nl';
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">We missen je, ${firstName}! 💪</h2>
+        <p style="color:#ccc;line-height:1.6">
+          Het is alweer ${daysSince} dagen geleden dat we je in de gym zagen. Tijd om de draad weer op te pakken!
+        </p>
+        <p style="color:#ccc;line-height:1.6">
+          Bekijk het rooster en boek je volgende les — we zien je graag terug.
+        </p>
+        <div style="margin:24px 0;text-align:center">
+          <a href="${appUrl}/schedule"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Bekijk het rooster
+          </a>
+        </div>
+        <p style="color:#666;font-size:13px">Vragen? Mail ons op <a href="mailto:info@mhgym.nl" style="color:#F5C200">info@mhgym.nl</a></p>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `We missen je bij MHGym, ${firstName}! 💪`, html });
+}
+
 module.exports = {
   sendWelcomeEmail, sendMembershipConfirmation, sendOrderConfirmation,
   sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail,
@@ -675,4 +705,5 @@ module.exports = {
   sendCashRegistrationEmail, sendFondsActivationEmail, sendPtSessionsAddedEmail,
   sendPaymentFailedMemberEmail, sendPaymentFailedAdminEmail,
   sendChargebackMemberEmail, sendChargebackAdminEmail,
+  sendInactivityReminderEmail,
 };

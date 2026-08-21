@@ -17,6 +17,7 @@ import InstallPage from './pages/InstallPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import MayaChatWidget from './components/MayaChatWidget'
 import TrainingPage from './pages/TrainingPage'
+import MijnVoortgangPage from './pages/MijnVoortgangPage'
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
         <Route element={<PrivateRoute />}>
           <Route element={<Navbar />}>
             <Route path="/dashboard"         element={<DashboardPage />} />
+            <Route path="/dashboard/mijn-voortgang" element={<MijnVoortgangPage />} />
             <Route path="/schedule"          element={<SchedulePage />} />
             <Route path="/agenda"            element={<AgendaPage />} />
             <Route path="/community"         element={<CommunityPage />} />
