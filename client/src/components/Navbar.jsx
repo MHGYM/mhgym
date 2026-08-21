@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut, ShoppingBag, Shield, Zap, Users2, MessageCircle, PlayCircle } from 'lucide-react'
+import { Dumbbell, LayoutDashboard, Calendar, CreditCard, UserCircle, LogOut, ShoppingBag, Shield, Zap, Users2, MessageCircle, PlayCircle, TrendingUp } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
 
@@ -40,6 +40,7 @@ export default function Navbar() {
   // Desktop nav links (top bar)
   const TOP_LINKS = [
     { to: '/dashboard',         label: 'Dashboard',    Icon: LayoutDashboard },
+    { to: '/dashboard/mijn-voortgang', label: 'Voortgang', Icon: TrendingUp  },
     { to: '/schedule',          label: 'Lessen',        Icon: Calendar        },
     { to: '/agenda',            label: 'Agenda',         Icon: Calendar        },
     { to: '/community',         label: 'Community',      Icon: Users2          },

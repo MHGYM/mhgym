@@ -61,6 +61,7 @@ app.use('/api/messages',      require('./routes/messages'));
 app.use('/api/setup',         require('./routes/setup'));
 app.use('/api/rittenkaarten', require('./routes/rittenkaarten'));
 app.use('/api/training',     require('./routes/training'));
+app.use('/api/voortgang',    require('./routes/voortgang'));
 
 // Health check
 app.get('/health', (_, res) => res.json({ status: 'ok', timestamp: new Date() }));

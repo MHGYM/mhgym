@@ -13,6 +13,7 @@ import AdminSubscriptions from './training/AdminSubscriptions'
 import ExerciseAdmin from './training/ExerciseAdmin'
 import ProgramAdmin from './training/ProgramAdmin'
 import NutritionAdmin from './training/NutritionAdmin'
+import VoortgangAdmin from './admin/VoortgangAdmin'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmtDate  = (s) => s ? new Date(s).toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : '—'
@@ -1174,6 +1175,10 @@ function PTAgendaSection() {
   }
   const confirm_ = async id => { await api.put(`/pt/bookings/${id}/confirm`); reload() }
   const decline_ = async id => { await api.put(`/pt/bookings/${id}/decline`); reload() }
+  const complete_ = async id => {
+    try { await api.put(`/voortgang/admin/pt-bookings/${id}/complete`); reload() }
+    catch (e) { alert(e.response?.data?.error || 'Voltooien mislukt.') }
+  }
 
   const pending   = bookings.filter(b => b.status === 'pending')
   const confirmed = bookings.filter(b => b.status === 'confirmed')
@@ -1240,9 +1245,14 @@ function PTAgendaSection() {
       )}
 
       {tab==='confirmed' && confirmed.map(b => (
-        <div key={b.id} style={{display:'flex',justifyContent:'space-between',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem',fontSize:'0.875rem'}}>
-          <span style={{fontWeight:600}}>{b.first_name} {b.last_name}</span>
-          <span style={{color:'var(--text-muted)'}}>{fmtDT(b.date_time)}</span>
+        <div key={b.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem',fontSize:'0.875rem'}}>
+          <div>
+            <span style={{fontWeight:600}}>{b.first_name} {b.last_name}</span>
+            <span style={{color:'var(--text-muted)',marginLeft:8}}>{fmtDT(b.date_time)}</span>
+          </div>
+          <button className="btn btn-sm" style={{background:'var(--success-dim)',color:'var(--success)'}} onClick={() => complete_(b.id)}>
+            <Check size={13}/> Voltooid
+          </button>
         </div>
       ))}
 
@@ -1669,7 +1679,28 @@ function RoosterSection() {
   const [tab,            setTab]            = useState('upcoming')
   const [showNew,        setShowNew]        = useState(false)
   const [form,           setForm]           = useState({name:'',instructor:'Mohammed',category:'kickboksen-recreanten',date_time:'',duration_minutes:60,max_capacity:18,location:'Zaal A',repeat_type:'none',repeat_weeks:4})
+  const [expanded,       setExpanded]       = useState(null)
+  const [participants,   setParticipants]   = useState([])
+  const [checkingIn,     setCheckingIn]     = useState(null)
   useEffect(() => { api.get('/admin/classes').then(r => setClasses(r.data.classes)).catch(() => {}) }, [])
+
+  const toggleParticipants = async (classId) => {
+    if (expanded === classId) { setExpanded(null); return }
+    setExpanded(classId)
+    try {
+      const r = await api.get(`/admin/classes/${classId}/bookings`)
+      setParticipants(r.data.bookings || [])
+    } catch (_) { setParticipants([]) }
+  }
+
+  const checkin = async (bookingId) => {
+    setCheckingIn(bookingId)
+    try {
+      await api.put(`/voortgang/admin/bookings/${bookingId}/checkin`)
+      setParticipants(ps => ps.map(p => p.id === bookingId ? { ...p, status: 'attended' } : p))
+    } catch (e) { alert(e.response?.data?.error || 'Inchecken mislukt.') }
+    finally { setCheckingIn(null) }
+  }
 
   const CATS = ['kickboksen-kids','kickboksen-recreanten','kickboksen-ladies-only','kickboksen-jeugd','boksen-recreanten','boksen-ladies-only','jeugd']
   const upcoming = classes.filter(c => new Date(c.date_time) > new Date() && c.status==='scheduled')
@@ -1744,14 +1775,38 @@ function RoosterSection() {
         </div>
       )}
       {(tab==='upcoming'?upcoming:past).map(c => (
-        <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem',background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem'}}>
-          <div>
-            <div style={{fontWeight:600,fontSize:'0.875rem'}}>{c.name}</div>
-            <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(c.date_time)} · {c.instructor} · {c.confirmed_bookings}/{c.max_capacity}</div>
+        <div key={c.id} style={{background:'var(--surface-2)',borderRadius:'var(--r)',marginBottom:'0.4rem',overflow:'hidden'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.75rem'}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:'0.875rem'}}>{c.name}</div>
+              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>{fmtDT(c.date_time)} · {c.instructor} · {c.confirmed_bookings}/{c.max_capacity}</div>
+            </div>
+            <div style={{display:'flex',gap:'0.4rem',alignItems:'center'}}>
+              <button className="btn btn-ghost btn-sm" onClick={() => toggleParticipants(c.id)}>
+                {expanded===c.id ? <ChevronUp size={13}/> : <ChevronDown size={13}/>} Deelnemers
+              </button>
+              {c.status==='scheduled' ? (
+                <button className="btn btn-danger btn-sm" onClick={() => cancelClass(c.id)}><X size={13}/></button>
+              ) : <span style={{fontSize:'0.75rem',color:'var(--error)'}}>Geannuleerd</span>}
+            </div>
           </div>
-          {c.status==='scheduled' ? (
-            <button className="btn btn-danger btn-sm" onClick={() => cancelClass(c.id)}><X size={13}/></button>
-          ) : <span style={{fontSize:'0.75rem',color:'var(--error)'}}>Geannuleerd</span>}
+          {expanded===c.id && (
+            <div style={{padding:'0 0.75rem 0.75rem'}}>
+              {participants.length === 0 && <p style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>Geen boekingen.</p>}
+              {participants.map(p => (
+                <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.4rem 0.6rem',background:'var(--surface-3)',borderRadius:6,marginBottom:'0.3rem',fontSize:'0.82rem'}}>
+                  <span>{p.first_name} {p.last_name}</span>
+                  {p.status==='attended' ? (
+                    <span className="badge badge-success">Aanwezig ✓</span>
+                  ) : (
+                    <button className="btn btn-sm" style={{background:'var(--success-dim)',color:'var(--success)'}} disabled={checkingIn===p.id} onClick={() => checkin(p.id)}>
+                      <Check size={12}/> Check-in
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -2914,6 +2969,7 @@ const MENU = [
   { key:'community',  label:'Community',     Icon:Users2          },
   { key:'rooster',        label:'Rooster',           Icon:Calendar      },
   { key:'training',       label:'Online Trainingen', Icon:PlayCircle    },
+  { key:'voortgang',      label:'Mijn Voortgang',    Icon:TrendingUp    },
   { key:'instellingen',  label:'Instellingen',      Icon:Ticket        },
   { key:'berichten',     label:'Berichten',         Icon:MessageCircle },
 ]
@@ -2961,6 +3017,7 @@ export default function AdminPage() {
         {section==='community'  && <CommunityBeheer/>}
         {section==='rooster'      && <RoosterSection/>}
         {section==='training'     && <TrainingAdminSection/>}
+        {section==='voortgang'    && <VoortgangAdmin/>}
         {section==='instellingen' && <InstellingenSection/>}
         {section==='berichten'    && <BerichtenSection/>}
       </main>
