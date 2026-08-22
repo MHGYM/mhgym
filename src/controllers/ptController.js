@@ -155,7 +155,7 @@ const deleteSlot = async (req, res) => {
 
 const myBookings = async (req, res) => {
   const result = await db.execute({
-    sql: `SELECT b.*, s.date_time, s.duration_minutes, s.trainer, s.location
+    sql: `SELECT b.*, s.date_time, s.duration_minutes, s.trainer
           FROM pt_bookings b
           JOIN pt_slots s ON s.id = b.slot_id
           WHERE b.user_id = ?

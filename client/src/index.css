@@ -355,11 +355,14 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 /* ── Auth page ─────────────────────────────────────────────── */
 .auth-page {
   min-height: 100vh;
+  width: 100%;
   display: grid; grid-template-columns: 1fr 1fr;
   background: var(--bg);
+  overflow-x: hidden;
 }
 
 .auth-brand {
+  min-width: 0;
   background:
     radial-gradient(ellipse at 30% 30%, rgba(245,194,0,0.22) 0%, transparent 55%),
     radial-gradient(ellipse at 80% 80%, rgba(245,194,0,0.08) 0%, transparent 50%),
@@ -416,14 +419,18 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 }
 
 .auth-form-side {
+  min-width: 0;
   display: flex; align-items: center; justify-content: center;
   padding: 3rem 2rem;
   background: var(--bg-2);
   border-left: 1px solid var(--border);
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
 .auth-box {
   width: 100%; max-width: 420px;
+  min-width: 0;
   display: flex; flex-direction: column; gap: 1.75rem;
 }
 
@@ -491,6 +498,47 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   transition: border-color 0.18s;
 }
 .booking-item:hover { border-color: var(--border-2); }
+
+/* ── Dashboard: avatar ring, PT-tier badge, coming-soon placeholder ──────── */
+.dash-avatar-ring {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.2rem; font-weight: 800; color: var(--accent);
+  background: var(--surface-2);
+  border: 2px solid var(--accent-dim);
+  flex-shrink: 0;
+}
+
+.dash-section { margin-bottom: 2.25rem; }
+.dash-section:last-child { margin-bottom: 0; }
+
+.dash-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.tier-badge {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 99px;
+  font-size: 0.72rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.tier-basic    { background: var(--surface-3);   color: var(--text-2); }
+.tier-standard { background: var(--info-dim);    color: var(--info); }
+.tier-premium  { background: var(--accent-dim);  color: var(--accent); }
+
+.coming-soon-card {
+  border: 1.5px dashed var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.coming-soon-card .cs-icon { font-size: 1.8rem; margin-bottom: 0.6rem; opacity: 0.6; }
+.coming-soon-card h4 { color: var(--text-2); font-size: 0.95rem; margin-bottom: 0.3rem; }
+.coming-soon-card p  { font-size: 0.8rem; max-width: 380px; margin: 0 auto; }
 .booking-time {
   background: var(--accent-dim); color: var(--accent);
   border-radius: var(--r-sm);
