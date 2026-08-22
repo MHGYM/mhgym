@@ -274,6 +274,60 @@ async function sendPtPackageConfirmationEmail({ to, firstName, packageLabel, les
 }
 
 /**
+ * PT-abonnement (Basic/Standard/Premium) succesvol afgesloten.
+ * Let op: er bestaat nog geen gepubliceerde "algemene voorwaarden"-pagina in de
+ * app — er wordt daarom bewust NAAR CONTACT verwezen i.p.v. een verzonnen link.
+ */
+async function sendPtSubscriptionConfirmationEmail({ to, firstName, tier, freqPerWeek, priceMonthly, startDate }) {
+  const fmt = (d) => new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
+  const planLabel = tier ? `${tier} — ${freqPerWeek}× per week` : `${freqPerWeek}× per week`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
+      ${headerHtml()}
+      <div style="padding:32px">
+        <h2 style="color:#F5C200;margin:0 0 12px">PT-abonnement actief! 💪</h2>
+        <p style="color:#ccc;line-height:1.6">Hoi ${firstName}, je PT-abonnement is bevestigd en direct actief.</p>
+
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin:20px 0">
+          <table style="width:100%;border-collapse:collapse">
+            <tr><td style="color:#888;padding:6px 0">Abonnement</td>
+                <td style="color:#fff;font-weight:600;text-align:right">${planLabel}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Maandprijs</td>
+                <td style="color:#F5C200;font-weight:700;text-align:right">€${Number(priceMonthly).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / maand</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Startdatum</td>
+                <td style="color:#fff;text-align:right">${fmt(startDate)}</td></tr>
+            <tr><td style="color:#888;padding:6px 0">Betaalperiode</td>
+                <td style="color:#fff;text-align:right">Maandelijks vooraf</td></tr>
+          </table>
+        </div>
+
+        <p style="color:#ccc;font-size:13px;line-height:1.6">
+          <strong style="color:#fff">Belangrijkste voorwaarden:</strong><br>
+          • Maandelijks opzegbaar, geen minimale looptijd.<br>
+          • Annuleren van een sessie kan kosteloos tot 24 uur van tevoren; bij annulering binnen 24 uur wordt de sessie gerekend.<br>
+          • Niet-gebruikte sessies worden niet automatisch meegenomen naar de volgende maand.<br>
+          • Wil je je abonnement wijzigen of beëindigen? Neem contact op met MH Gym — dit gaat niet automatisch via de app.
+        </p>
+
+        <p style="color:#888;font-size:12px;line-height:1.6">
+          Voor de volledige algemene voorwaarden kun je contact opnemen met MH Gym.
+        </p>
+
+        <div style="margin:24px 0;text-align:center">
+          <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/personal-training"
+             style="background:#F5C200;color:#000;padding:12px 28px;border-radius:6px;font-weight:700;text-decoration:none;display:inline-block">
+            Bekijk mijn abonnement
+          </a>
+        </div>
+      </div>
+      ${footerHtml()}
+    </div>`;
+
+  await sendMail({ to, subject: `MHGym — PT-abonnement ${planLabel} actief`, html });
+}
+
+/**
  * PT saldo bijna op (3 of minder lessen)
  */
 async function sendPtLowBalanceEmail({ to, firstName, remaining }) {
@@ -700,6 +754,7 @@ async function sendInactivityReminderEmail({ to, firstName, daysSince }) {
 module.exports = {
   sendWelcomeEmail, sendMembershipConfirmation, sendOrderConfirmation,
   sendPtConfirmationEmail, sendPtPackageConfirmationEmail, sendPtLowBalanceEmail,
+  sendPtSubscriptionConfirmationEmail,
   sendPasswordResetEmail, sendEmail,
   sendAdminWelcomeEmail,
   sendCashRegistrationEmail, sendFondsActivationEmail, sendPtSessionsAddedEmail,

@@ -3,6 +3,7 @@ const mollieClient = require('../config/mollie');
 const db = require('../config/database');
 const {
   sendMembershipConfirmation, sendOrderConfirmation, sendPtPackageConfirmationEmail,
+  sendPtSubscriptionConfirmationEmail,
   sendPaymentFailedMemberEmail, sendPaymentFailedAdminEmail,
   sendChargebackMemberEmail, sendChargebackAdminEmail,
 } = require('../services/emailService');
@@ -402,9 +403,20 @@ const webhook = async (req, res) => {
     const planId = parseInt(meta.plan_id || 0);
     const plan   = PT_PLANS.find((p) => p.id === planId);
     if (plan) {
-      const startDate   = new Date();
-      const contractEnd = new Date(startDate);
-      contractEnd.setMonth(contractEnd.getMonth() + 6);
+      const startDate = new Date();
+
+      // Nieuwe Basic/Standard/Premium-abonnementen (plan.tier) zijn maandelijks opzegbaar —
+      // geen minimale looptijd. De oude, niet meer verkochte 1×/2×/3×-plannen (zonder tier)
+      // behouden hun bestaande 6-maanden contract, puur voor eventuele nog actieve gevallen.
+      const isNewTierPlan = !!plan.tier;
+      let contractEnd = null;
+      let minimumMonths = 1;
+      if (!isNewTierPlan) {
+        contractEnd = new Date(startDate);
+        contractEnd.setMonth(contractEnd.getMonth() + 6);
+        minimumMonths = 6;
+      }
+
       const nextBillingDate = new Date(startDate);
       nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
 
@@ -427,13 +439,32 @@ const webhook = async (req, res) => {
       }
 
       await db.execute({
-        sql: `INSERT INTO pt_subscriptions (user_id, freq_per_week, price_per_lesson, price_monthly, status, mollie_subscription_id, start_date, contract_end, minimum_months, agreed_to_terms)
-              VALUES (?, ?, ?, ?, 'active', ?, ?, ?, 6, 1)`,
-        args: [userId, plan.freq_per_week, plan.price_per_lesson, plan.price_monthly, subscriptionId, startDate.toISOString().split('T')[0], contractEnd.toISOString().split('T')[0]],
+        sql: `INSERT INTO pt_subscriptions (user_id, freq_per_week, price_per_lesson, price_monthly, status, mollie_subscription_id, start_date, contract_end, minimum_months, agreed_to_terms, tier)
+              VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, 1, ?)`,
+        args: [
+          userId, plan.freq_per_week, plan.price_per_lesson, plan.price_monthly, subscriptionId,
+          startDate.toISOString().split('T')[0],
+          contractEnd ? contractEnd.toISOString().split('T')[0] : null,
+          minimumMonths,
+          plan.tier || null,
+        ],
       });
 
-      sendPush(userId, 'PT Abonnement actief! 💪', `Je ${plan.label} PT-abonnement is geactiveerd. Boek je eerste sessie!`);
-      console.log(`[PT] Abonnement ${plan.label} geactiveerd voor user ${userId}`);
+      const tierLabel = plan.tier ? `${plan.tier} — ${plan.label}` : plan.label;
+      sendPush(userId, 'PT Abonnement actief! 💪', `Je ${tierLabel} PT-abonnement is geactiveerd. Boek je eerste sessie!`);
+
+      const userForMail = await db.execute({ sql: 'SELECT email, first_name FROM users WHERE id = ?', args: [userId] });
+      if (userForMail.rows[0]) {
+        sendPtSubscriptionConfirmationEmail({
+          to: userForMail.rows[0].email,
+          firstName: userForMail.rows[0].first_name,
+          tier: plan.tier || null,
+          freqPerWeek: plan.freq_per_week,
+          priceMonthly: plan.price_monthly,
+          startDate: startDate.toISOString().split('T')[0],
+        }).catch((e) => console.error('[Email] PT subscription confirmation:', e.message));
+      }
+      console.log(`[PT] Abonnement ${tierLabel} geactiveerd voor user ${userId}`);
     }
   }
 

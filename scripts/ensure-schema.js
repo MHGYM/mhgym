@@ -470,6 +470,9 @@ async function ensureSchema() {
     `ALTER TABLE payment_failures ADD COLUMN auto_paused_at TEXT`,
     `ALTER TABLE payment_failures ADD COLUMN mollie_paylink TEXT`,
     `ALTER TABLE payment_failures ADD COLUMN surcharge_added REAL NOT NULL DEFAULT 0`,
+    // pt_subscriptions — tier-onderscheiding (Basic/Standard/Premium). NULL voor
+    // bestaande abonnementen (aangemaakt vóór de tier-structuur) — geen aanname, geen gok.
+    `ALTER TABLE pt_subscriptions ADD COLUMN tier TEXT`,
   ];
   for (const sql of patches) { await run(sql); }
 

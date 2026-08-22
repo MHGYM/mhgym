@@ -62,9 +62,23 @@ const PT_PACKAGES = [
 ];
 
 const PT_PLANS = [
+  // ── Bestaande 3 plannen — ongewijzigd gelaten (lopende abonnementen mogen niet veranderen) ──
   { id: 1, freq_per_week: 1, label: '1× per week', price_per_lesson: 60, price_monthly: 240 },
   { id: 2, freq_per_week: 2, label: '2× per week', price_per_lesson: 55, price_monthly: 440 },
   { id: 3, freq_per_week: 3, label: '3× per week', price_per_lesson: 50, price_monthly: 600 },
+
+  // ── Nieuwe 9 PT-abonnementen (Fase 2A, stap 1) — definitieve prijzen ──
+  { id: 4,  tier: 'Basic',    freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 54.75, price_monthly: 219   },
+  { id: 5,  tier: 'Basic',    freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 52.38, price_monthly: 419   },
+  { id: 6,  tier: 'Basic',    freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 49.92, price_monthly: 599   },
+
+  { id: 7,  tier: 'Standard', freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 74.75, price_monthly: 299   },
+  { id: 8,  tier: 'Standard', freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 71.13, price_monthly: 569   },
+  { id: 9,  tier: 'Standard', freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 68.25, price_monthly: 819   },
+
+  { id: 10, tier: 'Premium',  freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 99.75, price_monthly: 399   },
+  { id: 11, tier: 'Premium',  freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 94.88, price_monthly: 759   },
+  { id: 12, tier: 'Premium',  freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 91.58, price_monthly: 1099  },
 ];
 
 // ── Hulpfuncties ─────────────────────────────────────────────────────────────
@@ -380,6 +394,71 @@ const allBalances = async (req, res) => {
   res.json({ balances: result.rows });
 };
 
+// ── PT-abonnementen (admin overzicht + planwijziging) ────────────────────────
+
+/** GET /api/pt/subscriptions/admin — alle PT-abonnementen (tier, freq, prijs, status, data) */
+const listSubscriptionsAdmin = async (req, res) => {
+  const result = await db.execute(`
+    SELECT ps.*, u.first_name, u.last_name, u.email
+    FROM pt_subscriptions ps
+    JOIN users u ON u.id = ps.user_id
+    ORDER BY CASE ps.status WHEN 'active' THEN 0 WHEN 'cancelling' THEN 1 ELSE 2 END, ps.created_at DESC
+  `);
+  res.json({ subscriptions: result.rows });
+};
+
+/**
+ * PUT /api/pt/subscriptions/admin/:id — admin verwerkt een goedgekeurde plan-
+ * wijziging (aangevraagd door het lid via Berichten). Werkt uitsluitend op
+ * bestaande kolommen — geen nieuwe tabel. De wijziging gaat in per direct in
+ * onze eigen data; de admin bepaalt zelf het juiste moment (bv. bij de
+ * volgende betaalperiode) om dit te verwerken. start_date/contract_end van
+ * het bestaande abonnement blijven ongewijzigd — dit is geen nieuw contract.
+ */
+const adminUpdateSubscription = async (req, res) => {
+  const { plan_id } = req.body;
+  const plan = PT_PLANS.find((p) => p.id === parseInt(plan_id));
+  if (!plan) return res.status(404).json({ error: 'Onbekend plan.' });
+
+  const subRes = await db.execute({ sql: 'SELECT * FROM pt_subscriptions WHERE id = ?', args: [req.params.id] });
+  const sub = subRes.rows[0];
+  if (!sub) return res.status(404).json({ error: 'Abonnement niet gevonden.' });
+
+  await db.execute({
+    sql: `UPDATE pt_subscriptions SET
+            tier = ?, freq_per_week = ?, price_per_lesson = ?, price_monthly = ?, updated_at = datetime('now')
+          WHERE id = ?`,
+    args: [plan.tier || null, plan.freq_per_week, plan.price_per_lesson, plan.price_monthly, sub.id],
+  });
+
+  // Best effort: bijbehorende Mollie-subscription bijwerken zodat de volgende
+  // incasso het nieuwe bedrag gebruikt. Mislukt dit, dan blijft de lokale
+  // wijziging staan — de admin ziet dit in de logs en kan het handmatig navragen.
+  if (sub.mollie_subscription_id) {
+    try {
+      const userRes = await db.execute({ sql: 'SELECT mollie_customer_id FROM users WHERE id = ?', args: [sub.user_id] });
+      const customerId = userRes.rows[0]?.mollie_customer_id;
+      if (customerId) {
+        await mollieClient.customerSubscriptions.update({
+          customerId,
+          id: sub.mollie_subscription_id,
+          amount: { currency: 'EUR', value: Number(plan.price_monthly).toFixed(2) },
+        });
+      }
+    } catch (e) {
+      console.error('[Mollie] PT subscription bijwerken mislukt:', e.message);
+    }
+  }
+
+  const userRes2 = await db.execute({ sql: 'SELECT email, first_name FROM users WHERE id = ?', args: [sub.user_id] });
+  if (userRes2.rows[0]) {
+    const label = plan.tier ? `${plan.tier} — ${plan.label}` : plan.label;
+    sendPush(sub.user_id, 'PT-abonnement gewijzigd', `Je abonnement is aangepast naar ${label}.`).catch(() => {});
+  }
+
+  res.json({ message: 'Abonnement bijgewerkt.' });
+};
+
 // ── Checkout pakket ───────────────────────────────────────────────────────────
 
 const startPackageCheckout = async (req, res) => {
@@ -580,6 +659,7 @@ module.exports = {
   myBookings, createBooking, cancelBooking,
   allBookings, confirmBooking, declineBooking, toggleExtraPerson,
   myBalance, allBalances,
+  listSubscriptionsAdmin, adminUpdateSubscription,
   startPackageCheckout, startSubscriptionCheckout, cancelPtSubscription,
   subscribePush, getVapidKey, sendReminders,
   // For use in payment webhook:

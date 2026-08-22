@@ -1155,19 +1155,38 @@ function LedenSection() {
 // PT AGENDA
 // ════════════════════════════════════════════════════════════════════
 function PTAgendaSection() {
-  const [tab,      setTab]      = useState('pending')
-  const [slots,    setSlots]    = useState([])
-  const [bookings, setBookings] = useState([])
-  const [balances, setBalances] = useState([])
-  const [showNew,  setShowNew]  = useState(false)
-  const [newSlot,  setNewSlot]  = useState({date_time:'',duration_minutes:60,trainer:'Mohammed',notes:''})
+  const [tab,           setTab]           = useState('pending')
+  const [slots,         setSlots]         = useState([])
+  const [bookings,      setBookings]      = useState([])
+  const [balances,      setBalances]      = useState([])
+  const [subscriptions, setSubscriptions] = useState([])
+  const [ptPlans,       setPtPlans]       = useState([])
+  const [showNew,       setShowNew]       = useState(false)
+  const [newSlot,       setNewSlot]       = useState({date_time:'',duration_minutes:60,trainer:'Mohammed',notes:''})
+  const [editingSubId,  setEditingSubId]  = useState(null)
+  const [selectedPlanId,setSelectedPlanId]= useState('')
+  const [applying,      setApplying]      = useState(false)
 
   const reload = () => {
     api.get('/pt/slots?all=1').then(r => setSlots(r.data.slots)).catch(() => {})
     api.get('/pt/bookings/admin').then(r => setBookings(r.data.bookings)).catch(() => {})
     api.get('/pt/balance/admin').then(r => setBalances(r.data.balances)).catch(() => {})
+    api.get('/pt/subscriptions/admin').then(r => setSubscriptions(r.data.subscriptions)).catch(() => {})
+    api.get('/pt/plans').then(r => setPtPlans(r.data.plans.filter(p => p.tier))).catch(() => {})
   }
   useEffect(reload, [])
+
+  const startEditSub = (sub) => { setEditingSubId(sub.id); setSelectedPlanId('') }
+  const applySubChange = async (subId) => {
+    if (!selectedPlanId) return
+    setApplying(true)
+    try {
+      await api.put(`/pt/subscriptions/admin/${subId}`, { plan_id: Number(selectedPlanId) })
+      setEditingSubId(null)
+      reload()
+    } catch (e) { alert(e.response?.data?.error || 'Bijwerken mislukt.') }
+    finally { setApplying(false) }
+  }
 
   const createSlot = async () => {
     try { await api.post('/pt/slots', newSlot); reload(); setShowNew(false); setNewSlot({date_time:'',duration_minutes:60,trainer:'Mohammed',notes:''}) }
@@ -1187,7 +1206,7 @@ function PTAgendaSection() {
     <div>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'1rem'}}>
         <div className="tab-bar">
-          {[['pending',`Aanvragen (${pending.length})`],['confirmed','Bevestigd'],['slots','Slots'],['balances','Saldo']].map(([k,l]) => (
+          {[['pending',`Aanvragen (${pending.length})`],['confirmed','Bevestigd'],['slots','Slots'],['balances','Saldo'],['subscriptions','Abonnementen']].map(([k,l]) => (
             <button key={k} className={`tab-btn${tab===k?' active':''}`} onClick={() => setTab(k)}>{l}</button>
           ))}
         </div>
@@ -1268,6 +1287,56 @@ function PTAgendaSection() {
           </div>
         </div>
       ))}
+
+      {tab==='subscriptions' && (
+        <div>
+          {subscriptions.length === 0 && <p style={{color:'var(--text-muted)'}}>Geen PT-abonnementen.</p>}
+          {subscriptions.map(s => (
+            <div key={s.id} className="card" style={{marginBottom:'0.6rem'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'0.75rem'}}>
+                <div>
+                  <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:8}}>
+                    {s.first_name} {s.last_name}
+                    <span className={`badge ${s.status==='active'?'badge-success':s.status==='cancelling'?'badge-warning':'badge-muted'}`}>{s.status}</span>
+                    {!s.tier && <span className="badge badge-muted">legacy</span>}
+                  </div>
+                  <div style={{fontSize:'0.82rem',color:'var(--text-muted)',marginTop:2}}>{s.email}</div>
+                  <div style={{fontSize:'0.85rem',marginTop:6}}>
+                    {s.tier ? <strong>{s.tier}</strong> : <span style={{color:'var(--text-muted)'}}>(geen tier)</span>}
+                    {' · '}{s.freq_per_week}×/week{' · '}€{Number(s.price_monthly).toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2})}/mnd
+                  </div>
+                  <div style={{fontSize:'0.75rem',color:'var(--text-muted)',marginTop:4}}>
+                    Start: {s.start_date || '—'}
+                    {s.contract_end ? ` · Contract tot: ${s.contract_end}` : ' · Maandelijks opzegbaar'}
+                    {s.cancels_at ? ` · Loopt af: ${s.cancels_at}` : ''}
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:'0.4rem',flexShrink:0}}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => startEditSub(s)}><Edit2 size={13}/> Plan wijzigen</button>
+                </div>
+              </div>
+
+              {editingSubId === s.id && (
+                <div style={{marginTop:'0.85rem',paddingTop:'0.85rem',borderTop:'1px solid var(--border)',display:'flex',gap:'0.5rem',alignItems:'center',flexWrap:'wrap'}}>
+                  <select className="input" style={{maxWidth:280}} value={selectedPlanId} onChange={e=>setSelectedPlanId(e.target.value)}>
+                    <option value="">— Kies nieuw plan —</option>
+                    {ptPlans.map(p => (
+                      <option key={p.id} value={p.id}>{p.tier} · {p.freq_per_week}×/week · €{p.price_monthly}/mnd</option>
+                    ))}
+                  </select>
+                  <button className="btn btn-primary btn-sm" disabled={!selectedPlanId || applying} onClick={() => applySubChange(s.id)}>
+                    <Check size={13}/> Toepassen
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditingSubId(null)}>Annuleren</button>
+                  <p style={{fontSize:'0.72rem',color:'var(--text-muted)',width:'100%',margin:0}}>
+                    Verwerkt een door het lid aangevraagde wijziging (zie Berichten). Pas toe op het moment dat jij geschikt acht voor de volgende betaalperiode — dit wijzigt direct tier/frequentie/prijs van dit abonnement.
+                  </p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

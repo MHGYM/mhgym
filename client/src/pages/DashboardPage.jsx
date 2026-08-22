@@ -18,10 +18,7 @@ function formatDateLong(dateStr) {
   return new Date(dateStr).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-// Presentatie-mapping — er bestaat nog geen tier-veld in de database.
-// Prijzen/frequenties worden in een latere fase vastgelegd; dit is puur UI.
-const PT_TIER_BY_FREQ = { 1: 'Basic', 2: 'Standard', 3: 'Premium' }
-const PT_TIER_CLASS   = { Basic: 'tier-basic', Standard: 'tier-standard', Premium: 'tier-premium' }
+const PT_TIER_CLASS = { Basic: 'tier-basic', Standard: 'tier-standard', Premium: 'tier-premium' }
 
 export default function DashboardPage() {
   const { user, membership, refreshUser } = useAuth()
@@ -123,7 +120,9 @@ export default function DashboardPage() {
   ).length
 
   const isPtClient = !!(ptBalance?.subscription) || Number(ptBalance?.total_remaining) > 0
-  const ptTier = ptBalance?.subscription ? PT_TIER_BY_FREQ[ptBalance.subscription.freq_per_week] : null
+  // Tier komt uitsluitend uit echte data — pt_subscriptions heeft momenteel geen tier-kolom,
+  // dus tot die er is tonen we bewust geen (mogelijk onjuist) gegokt niveau.
+  const ptTier = ptBalance?.subscription?.tier || null
 
   const geldigheid    = voortgang?.geldigheid || null
   const hasFonds       = !!geldigheid?.fonds
@@ -307,16 +306,26 @@ export default function DashboardPage() {
         <div className="dash-section">
           <div className="section-header">
             <h2><Zap size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Personal Training</h2>
-            <Link to="/personal-training" className="btn btn-ghost btn-sm">Bekijk PT <ArrowRight size={14} /></Link>
+            <Link to={ptBalance.subscription ? '/personal-training?tab=abo' : '/personal-training'} className="btn btn-ghost btn-sm">
+              {ptBalance.subscription ? 'Abonnement beheren' : 'Bekijk PT'} <ArrowRight size={14} />
+            </Link>
           </div>
           <div className="pt-card">
             <div className="pt-card-header">
               <div className="pt-card-title">
                 <Zap size={18} style={{ color: 'var(--accent)' }} />
-                {ptBalance.subscription ? 'PT-abonnement' : 'PT-lessenpakket'}
+                {ptBalance.subscription
+                  ? `${ptTier ? 'PT ' + ptTier : 'PT-abonnement'} · ${ptBalance.subscription.freq_per_week}× per week`
+                  : 'PT-lessenpakket'}
               </div>
               {ptTier && <span className={`tier-badge ${PT_TIER_CLASS[ptTier]}`}>{ptTier}</span>}
             </div>
+            {ptBalance.subscription && (
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--accent)', marginBottom: '0.75rem' }}>
+                €{Number(ptBalance.subscription.price_monthly).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 500 }}> / maand</span>
+              </div>
+            )}
             <div className="pt-stats-row">
               <div className="mini-stat">
                 <span className="mini-stat-label">Resterende lessen</span>

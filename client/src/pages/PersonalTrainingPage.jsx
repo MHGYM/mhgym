@@ -7,6 +7,11 @@ import { useAuth } from '../context/AuthContext'
 import api from '../api'
 
 // ── Constanten ─────────────────────────────────────────────────────────────
+// Consistente eurobedrag-weergave (bv. €1.099,00) — duizendtal-punt + 2 decimalen.
+function formatEuro(n) {
+  return `€${Number(n).toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 const LOSSE_TERMS = [
   'Gekochte lessen zijn 12 maanden geldig na aankoopdatum.',
   'Geen restitutie mogelijk na aankoop.',
@@ -28,6 +33,52 @@ const ABO_TERMS = [
   'Sessies zijn persoonlijk en niet overdraagbaar.',
   'MH Gym behoudt het recht om een sessie te verzetten bij overmacht.',
   'Door akkoord te gaan ga je een bindende overeenkomst aan voor minimaal 6 maanden.',
+]
+
+// PT-tiers — uitsluitend presentatie/features. Prijzen komen altijd uit PT_PLANS (backend/API), nooit hier.
+const TIER_INFO = [
+  {
+    tier: 'Basic', medal: '🥉',
+    features: [
+      'Personal Training',
+      'Persoonlijke begeleiding tijdens de training',
+      'Training gericht op jouw doel',
+    ],
+  },
+  {
+    tier: 'Standard', medal: '🥈',
+    features: [
+      'Alles van Basic',
+      'Lichaamsmetingen',
+      'Extra begeleiding',
+      'Water/shake waar afgesproken',
+      'Persoonlijke voortgang',
+    ],
+  },
+  {
+    tier: 'Premium', medal: '🥇',
+    features: [
+      'Alles van Standard',
+      'Persoonlijk voedingsschema',
+      'Persoonlijk trainingsprogramma',
+      'Persoonlijke oefeningen',
+      'Uitgebreide voortgang/meting',
+      'Consults',
+      'Online trainingen/video’s',
+      'Persoonlijke coaching/contact',
+      'MH Gym shop/gear voordelen en kortingen waar beschikbaar',
+    ],
+  },
+]
+
+const PT_VOORWAARDEN = [
+  'Maandelijks opzegbaar',
+  'Vooruitbetaling per maand',
+  'Upgraden kan altijd',
+  'Minimaal 24 uur vooraf annuleren',
+  'Minder dan 24 uur vooraf annuleren = les wordt gerekend',
+  'Gemiste lessen worden niet automatisch meegenomen naar de volgende maand',
+  'Een eventuele 5e trainingsweek wordt als extra training verwerkt volgens het gekozen abonnement/tarief',
 ]
 
 function fmtDate(d) {
@@ -84,9 +135,12 @@ function PurchaseWizard({ type, item, onClose }) {
   const [error,  setError]  = useState('')
 
   const isPackage = type === 'package'
-  const terms     = isPackage ? LOSSE_TERMS : ABO_TERMS
+  // Nieuwe Basic/Standard/Premium-abonnementen (met tier) zijn maandelijks opzegbaar —
+  // de oude, niet meer getoonde 1×/2×/3×-plannen (zonder tier) behouden hun bestaande 6-maanden voorwaarden.
+  const isNewTierSub = !isPackage && !!item.tier
+  const terms = isPackage ? LOSSE_TERMS : (isNewTierSub ? PT_VOORWAARDEN : ABO_TERMS)
 
-  const contractEnd = !isPackage ? addMonths(new Date(), 6) : null
+  const contractEnd = (!isPackage && !isNewTierSub) ? addMonths(new Date(), 6) : null
 
   const startPayment = async () => {
     setPaying(true); setError('')
@@ -105,7 +159,7 @@ function PurchaseWizard({ type, item, onClose }) {
 
   const priceStr = isPackage
     ? `€${item.total_price.toFixed(2).replace('.', ',')}`
-    : `€${item.price_monthly.toFixed(2).replace('.', ',')} / maand`
+    : `${formatEuro(item.price_monthly)} / maand`
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -113,7 +167,7 @@ function PurchaseWizard({ type, item, onClose }) {
         <div className="modal-header" style={{ marginBottom: '1.25rem' }}>
           <div>
             <h3 style={{ marginBottom: '0.2rem' }}>
-              {isPackage ? `PT Pakket — ${item.label}` : `PT Abonnement — ${item.label}`}
+              {isPackage ? `PT Pakket — ${item.label}` : `PT Abonnement — ${item.tier ? item.tier + ' · ' : ''}${item.label}`}
             </h3>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{priceStr}</div>
           </div>
@@ -136,6 +190,13 @@ function PurchaseWizard({ type, item, onClose }) {
                   ['Totaalprijs',    `€${item.total_price.toFixed(2).replace('.', ',')}`],
                   ['Geldig',         '12 maanden na aankoop'],
                   ['Betaalmethode',  'iDEAL (eenmalig)'],
+                ] : isNewTierSub ? [
+                  ['Abonnement',     `${item.tier} — ${item.label}`],
+                  ['Prijs per les',  `€${item.price_per_lesson}/sessie`],
+                  ['Maandbedrag',    `${formatEuro(item.price_monthly)}/mnd`],
+                  ['Opzegtermijn',   'Maandelijks opzegbaar'],
+                  ['Startdatum',     new Date().toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })],
+                  ['Betaalmethode',  'iDEAL + SEPA maandelijks'],
                 ] : [
                   ['Abonnement',     item.label],
                   ['Prijs per les',  `€${item.price_per_lesson}/sessie`],
@@ -178,6 +239,10 @@ function PurchaseWizard({ type, item, onClose }) {
                   </li>
                 ))}
               </ul>
+              <a href="mailto:info@mhgym.nl?subject=Algemene%20voorwaarden"
+                 style={{ display: 'inline-block', marginTop: '0.75rem', fontSize: '0.78rem', color: 'var(--accent)' }}>
+                Bekijk algemene voorwaarden →
+              </a>
             </div>
             <label style={{
               display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer',
@@ -191,7 +256,9 @@ function PurchaseWizard({ type, item, onClose }) {
               <span style={{ fontSize: '0.83rem', lineHeight: 1.55, color: 'var(--text-2)' }}>
                 {isPackage
                   ? 'Ik ga akkoord met de voorwaarden voor losse PT-lessen en begrijp dat er geen restitutie mogelijk is na aankoop.'
-                  : 'Ik ga akkoord met de voorwaarden en ga een bindende overeenkomst aan voor minimaal 6 maanden met een opzegtermijn van 1 maand.'
+                  : isNewTierSub
+                    ? 'Ik ga akkoord met de voorwaarden. Dit abonnement is maandelijks opzegbaar — geen minimale looptijd.'
+                    : 'Ik ga akkoord met de voorwaarden en ga een bindende overeenkomst aan voor minimaal 6 maanden met een opzegtermijn van 1 maand.'
                 }
               </span>
             </label>
@@ -211,11 +278,11 @@ function PurchaseWizard({ type, item, onClose }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Nu te betalen</span>
                 <span style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--accent)' }}>
-                  {isPackage ? `€${item.total_price.toFixed(2).replace('.', ',')}` : `€${item.price_monthly.toFixed(2).replace('.', ',')}`}
+                  {isPackage ? `€${item.total_price.toFixed(2).replace('.', ',')}` : formatEuro(item.price_monthly)}
                 </span>
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                {isPackage ? `${item.label} — geldig 12 maanden` : `Eerste maand — daarna €${item.price_monthly}/mnd via SEPA`}
+                {isPackage ? `${item.label} — geldig 12 maanden` : `Eerste maand — daarna ${formatEuro(item.price_monthly)}/mnd via SEPA`}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
@@ -481,6 +548,156 @@ function SlotsView({ balance, onRefresh }) {
   )
 }
 
+// ── Abonnement beheren (planwijziging aanvragen + beëindigen) ───────────────
+// De klant kan een wijziging AANVRAGEN — niet zelf direct doorvoeren. De
+// aanvraag gaat via het bestaande berichtensysteem naar de admin, die de
+// wijziging zelf verwerkt (geen nieuwe tabel/architectuur nodig hiervoor).
+function SubscriptionManagePanel({ subscription, plans }) {
+  const [open,       setOpen]       = useState(false)
+  const [changing,   setChanging]   = useState(false)
+  const [freq,       setFreq]       = useState(subscription.freq_per_week)
+  const [tier,       setTier]       = useState(subscription.tier || 'Basic')
+  const [sending,    setSending]    = useState(false)
+  const [sent,       setSent]       = useState(false)
+  const [error,      setError]      = useState('')
+
+  const tierPlans   = useMemo(() => plans.filter((p) => p.tier), [plans])
+  const currentLabel = subscription.tier ? `${subscription.tier} — ${subscription.freq_per_week}× per week` : `${subscription.freq_per_week}× per week (legacy)`
+  const targetPlan  = tierPlans.find((p) => p.tier === tier && p.freq_per_week === freq)
+  const isSamePlan  = subscription.tier === tier && subscription.freq_per_week === freq
+
+  const sendChangeRequest = async () => {
+    if (!targetPlan) return
+    setSending(true); setError('')
+    try {
+      const body =
+        `PT-planwijziging aangevraagd.\n\n` +
+        `Huidig abonnement: ${currentLabel} — ${formatEuro(subscription.price_monthly)}/mnd\n` +
+        `Gewenst abonnement: ${targetPlan.tier} — ${targetPlan.freq_per_week}× per week — ${formatEuro(targetPlan.price_monthly)}/mnd\n\n` +
+        `Graag laten ingaan vanaf de volgende betaalperiode (geen tussentijdse verrekening).`
+      await api.post('/messages', { body })
+      setSent(true)
+      setChanging(false)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Aanvraag versturen mislukt. Probeer het later opnieuw.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="dash-section" style={{ marginBottom: '2rem' }}>
+      <div className="section-header" style={{ marginBottom: '0.75rem' }}>
+        <h2>Mijn abonnement</h2>
+      </div>
+
+      <div className="pt-card">
+        <div className="pt-card-header">
+          <div className="pt-card-title">
+            <Dumbbell size={18} style={{ color: 'var(--accent)' }} />
+            {currentLabel}
+          </div>
+          {subscription.tier && <span className={`tier-badge tier-${subscription.tier.toLowerCase()}`}>{subscription.tier}</span>}
+        </div>
+        <div className="pt-stats-row" style={{ marginBottom: '1.25rem' }}>
+          <div className="mini-stat">
+            <span className="mini-stat-label">Prijs</span>
+            <span className="mini-stat-value">{formatEuro(subscription.price_monthly)}</span>
+            <span className="mini-stat-sub">per maand · maandelijks opzegbaar</span>
+          </div>
+          <div className="mini-stat">
+            <span className="mini-stat-label">Actief sinds</span>
+            <span className="mini-stat-value" style={{ fontSize: '1.1rem' }}>{fmtDate(subscription.start_date)}</span>
+          </div>
+          <div className="mini-stat">
+            <span className="mini-stat-label">Status</span>
+            <span className="mini-stat-value" style={{ fontSize: '1.1rem' }}>
+              {subscription.status === 'cancelling' ? 'Wordt beëindigd' : 'Actief'}
+            </span>
+            {subscription.status === 'cancelling' && subscription.cancels_at && (
+              <span className="mini-stat-sub">tot {fmtDate(subscription.cancels_at)}</span>
+            )}
+          </div>
+        </div>
+
+        {!open ? (
+          <button className="btn btn-outline" onClick={() => setOpen(true)}>Abonnement beheren</button>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+            {!changing ? (
+              <>
+                <button className="btn btn-primary btn-full" onClick={() => { setChanging(true); setSent(false) }}>
+                  Plan wijzigen aanvragen
+                </button>
+                <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '1rem 1.25rem', fontSize: '0.83rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                  Wil je je PT-abonnement beëindigen? Neem contact op met MH Gym via{' '}
+                  <a href="mailto:info@mhgym.nl" style={{ color: 'var(--accent)' }}>info@mhgym.nl</a>. Beëindigen kan niet automatisch via de app —
+                  de lopende, betaalde maand wordt altijd volledig afgemaakt, zonder tussentijdse terugbetaling.
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => setOpen(false)} style={{ alignSelf: 'flex-start' }}>Sluiten</button>
+              </>
+            ) : sent ? (
+              <div className="alert alert-success">
+                <Check size={16} /> Je aanvraag is verstuurd. MH Gym neemt de wijziging in behandeling en past dit toe vanaf je volgende betaalperiode.
+              </div>
+            ) : (
+              <>
+                {error && <div className="alert alert-error"><AlertCircle size={15} />{error}</div>}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Nieuw niveau</div>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {['Basic', 'Standard', 'Premium'].map((t) => (
+                        <button key={t} onClick={() => setTier(t)} className={`btn btn-sm ${tier === t ? 'btn-primary' : 'btn-outline'}`}>{t}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Nieuwe frequentie</div>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {[1, 2, 3].map((f) => (
+                        <button key={f} onClick={() => setFreq(f)} className={`btn btn-sm ${freq === f ? 'btn-primary' : 'btn-outline'}`}>{f}× per week</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '1rem 1.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.83rem', marginBottom: '0.4rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Huidig</span>
+                    <span style={{ fontWeight: 600 }}>{currentLabel} — {formatEuro(subscription.price_monthly)}/mnd</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.83rem', marginBottom: '0.4rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Nieuw</span>
+                    <span style={{ fontWeight: 600, color: 'var(--accent)' }}>
+                      {targetPlan ? `${targetPlan.tier} — ${targetPlan.freq_per_week}× per week — ${formatEuro(targetPlan.price_monthly)}/mnd` : 'Niet beschikbaar'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Ingangsdatum</span>
+                    <span>Volgende betaalperiode</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.6rem' }}>
+                  <button className="btn btn-ghost" onClick={() => setChanging(false)}>Terug</button>
+                  <button className="btn btn-primary btn-full" disabled={!targetPlan || isSamePlan || sending} onClick={sendChangeRequest}>
+                    {sending ? <span className="spinner spinner-sm" /> : isSamePlan ? 'Dit is je huidige plan' : 'Aanvraag versturen'}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Je huidige abonnement blijft ongewijzigd tot MH Gym de aanvraag verwerkt. Er vindt geen tussentijdse verrekening plaats.
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────
 export default function PersonalTrainingPage() {
   const { user } = useAuth()
@@ -488,9 +705,10 @@ export default function PersonalTrainingPage() {
   const [plans,     setPlans]     = useState([])
   const [balance,   setBalance]   = useState(null)
   const [loading,   setLoading]   = useState(true)
-  const [activeTab, setActiveTab] = useState('lessen')
-  const [wizard,    setWizard]    = useState(null)  // { type, item }
-  const [success,   setSuccess]   = useState('')
+  const [activeTab,    setActiveTab]    = useState(() => new URLSearchParams(window.location.search).get('tab') || 'lessen')
+  const [wizard,       setWizard]       = useState(null)  // { type, item }
+  const [success,      setSuccess]      = useState('')
+  const [selectedFreq, setSelectedFreq] = useState(1)      // PT-tiers: gekozen trainingsfrequentie
 
   const loadBalance = useCallback(async () => {
     if (!user) return
@@ -645,59 +863,125 @@ export default function PersonalTrainingPage() {
         </div>
       )}
 
-      {/* ── PT Abonnement ─────────────────────────────────────────────────── */}
+      {/* ── PT Abonnement — tiers × frequentie ───────────────────────────────── */}
       {activeTab === 'abo' && (
         <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', marginBottom: '0.5rem' }}>
-            <h2>PT Abonnement</h2>
-            <span style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>6 maanden minimum</span>
-          </div>
+          {hasSubscription && balance.subscription && (
+            <SubscriptionManagePanel subscription={balance.subscription} plans={uniquePlans} />
+          )}
+
+          {/* 1. Intro */}
+          <h2 style={{ marginBottom: '0.35rem' }}>Personal Training</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.75rem' }}>
-            Vaste coaching op jouw ritme. Automatische SEPA-incasso per maand.
+            Train gericht. Werk persoonlijk aan jouw doel. Kies je niveau en trainingsfrequentie —
+            de prijs wordt automatisch getoond.
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-            {uniquePlans.map((plan) => {
-              const isBest = plan.freq_per_week === 2
+          {/* 2. Frequentiekeuze */}
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.6rem' }}>
+              Trainingsfrequentie
+            </div>
+            <div style={{ display: 'inline-flex', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: '4px', gap: '4px' }}>
+              {[1, 2, 3].map((freq) => (
+                <button
+                  key={freq}
+                  onClick={() => setSelectedFreq(freq)}
+                  style={{
+                    padding: '0.6rem 1.1rem', borderRadius: 'var(--r)', border: 'none',
+                    background: selectedFreq === freq ? 'var(--accent)' : 'transparent',
+                    color: selectedFreq === freq ? '#000' : 'var(--text-2)',
+                    fontWeight: selectedFreq === freq ? 800 : 500,
+                    fontSize: '0.88rem', cursor: 'pointer', transition: 'var(--t)', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {freq}× per week
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 3. Drie pakketten */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
+            {TIER_INFO.map(({ tier, medal, features }) => {
+              const plan = uniquePlans.find((p) => p.tier === tier && p.freq_per_week === selectedFreq)
+              const isPremium = tier === 'Premium'
               return (
-                <div key={plan.id} style={{
-                  background: 'var(--surface)', border: `1px solid ${isBest ? 'var(--accent)' : 'var(--border)'}`,
-                  borderRadius: 'var(--r-lg)', padding: '1.5rem', position: 'relative',
-                  boxShadow: isBest ? '0 0 0 1px var(--accent), 0 8px 32px rgba(245,194,0,0.1)' : 'none',
+                <div key={tier} style={{
+                  background: isPremium
+                    ? 'linear-gradient(160deg, rgba(245,194,0,0.10) 0%, var(--surface) 55%)'
+                    : 'var(--surface)',
+                  border: `1.5px solid ${isPremium ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 'var(--r-xl)', padding: '1.75rem', position: 'relative',
+                  boxShadow: isPremium ? '0 0 0 1px var(--accent), 0 12px 40px rgba(245,194,0,0.15)' : 'none',
+                  display: 'flex', flexDirection: 'column',
                 }}>
-                  {isBest && <span style={{
-                    position: 'absolute', top: '-12px', left: '50%', transform: 'translateX(-50%)',
-                    background: 'var(--accent)', color: '#000', fontSize: '0.72rem', fontWeight: 800,
-                    padding: '3px 12px', borderRadius: '20px',
-                  }}>AANBEVOLEN</span>}
-                  <div style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.5rem' }}>{plan.label}</div>
-                  <div style={{ marginBottom: '0.25rem' }}>
-                    <span style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent)' }}>€{plan.price_per_lesson}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}> /sessie</span>
+                  {isPremium && <span style={{
+                    position: 'absolute', top: '-13px', left: '50%', transform: 'translateX(-50%)',
+                    background: 'var(--accent)', color: '#000', fontSize: '0.7rem', fontWeight: 800,
+                    padding: '4px 14px', borderRadius: '20px', letterSpacing: '0.5px', whiteSpace: 'nowrap',
+                  }}>MEEST COMPLEET</span>}
+
+                  <div style={{ fontSize: '1.8rem', marginBottom: '0.3rem' }}>{medal}</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, marginBottom: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    {tier}
                   </div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                    €{plan.price_monthly}/mnd · {plan.freq_per_week * 4} sessies/mnd
-                  </div>
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                      ✓ {plan.freq_per_week}× per week<br />
-                      ✓ 60 min per sessie<br />
-                      ✓ Na 6 mnd opzegbaar
+
+                  {plan ? (
+                    <>
+                      <div style={{ marginBottom: '0.1rem' }}>
+                        <span style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)' }}>{formatEuro(plan.price_monthly)}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}> / maand</span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                        Maandelijks opzegbaar · {plan.lessons_per_month ?? plan.freq_per_week * 4} sessies/mnd
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Prijs niet beschikbaar voor deze combinatie.
                     </div>
-                  </div>
+                  )}
+
+                  <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.55rem', marginBottom: '1.5rem', flex: 1 }}>
+                    {features.map((f, i) => (
+                      <li key={i} style={{ display: 'flex', gap: '0.6rem', fontSize: '0.83rem', color: 'var(--text-2)', lineHeight: 1.4 }}>
+                        <Check size={15} style={{ color: isPremium ? 'var(--accent)' : 'var(--success)', flexShrink: 0, marginTop: '1px' }} />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+
                   {hasSubscription ? (
-                    <button className="btn btn-ghost btn-full" disabled>Al actief</button>
+                    <button className="btn btn-ghost btn-full" disabled>Al actief abonnement</button>
                   ) : (
                     <button
-                      className={`btn btn-full ${isBest ? 'btn-primary' : 'btn-outline'}`}
-                      onClick={() => setWizard({ type: 'subscription', item: plan })}
+                      className={`btn btn-full ${isPremium ? 'btn-primary' : 'btn-outline'}`}
+                      disabled={!plan}
+                      onClick={() => plan && setWizard({ type: 'subscription', item: plan })}
                     >
-                      Start abonnement <ArrowRight size={15} />
+                      Dit pakket kiezen <ArrowRight size={15} />
                     </button>
                   )}
                 </div>
               )
             })}
+          </div>
+
+          {/* 6. Voorwaarden */}
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: '1.25rem 1.5rem', marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-2)', marginBottom: '0.6rem' }}>Voorwaarden</div>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {PT_VOORWAARDEN.map((v, i) => (
+                <li key={i} style={{ display: 'flex', gap: '0.6rem', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  <span style={{ color: 'var(--accent)', flexShrink: 0 }}>■</span>{v}
+                </li>
+              ))}
+            </ul>
+            <a href="mailto:info@mhgym.nl?subject=Algemene%20voorwaarden%20PT-abonnement"
+               style={{ display: 'inline-block', marginTop: '0.9rem', fontSize: '0.78rem', color: 'var(--accent)' }}>
+              Bekijk algemene voorwaarden →
+            </a>
           </div>
 
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '1rem 1.25rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>

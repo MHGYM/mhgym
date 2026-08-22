@@ -7,6 +7,7 @@ const {
   myBookings, createBooking, cancelBooking,
   allBookings, confirmBooking, declineBooking, toggleExtraPerson,
   myBalance, allBalances,
+  listSubscriptionsAdmin, adminUpdateSubscription,
   startPackageCheckout, startSubscriptionCheckout, cancelPtSubscription,
   subscribePush, getVapidKey, sendReminders,
 } = require('../controllers/ptController');
@@ -36,6 +37,10 @@ router.put('/bookings/:id/extra',     authenticate, requireAdmin, toggleExtraPer
 // Balance
 router.get('/balance',        authenticate, myBalance);
 router.get('/balance/admin',  authenticate, requireAdmin, allBalances);
+
+// Abonnementen (admin overzicht + planwijziging na goedgekeurde aanvraag)
+router.get('/subscriptions/admin',      authenticate, requireAdmin, listSubscriptionsAdmin);
+router.put('/subscriptions/admin/:id',  authenticate, requireAdmin, adminUpdateSubscription);
 
 // Checkout
 router.post('/checkout/package',      authenticate, startPackageCheckout);
