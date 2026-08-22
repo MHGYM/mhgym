@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom'
 import {
   Calendar, CreditCard, TrendingUp, Clock, MapPin, User, ArrowRight, Dumbbell,
   Ticket, Zap, Target, Ruler, Utensils, Flame, AlertTriangle, Award, ChevronRight,
+  Lock, CheckCircle2, Sparkles, ScrollText,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
 
 function formatDate(dateStr) {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })
+  return new Date(dateStr).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
@@ -26,17 +26,20 @@ const PT_TIER_CLASS   = { Basic: 'tier-basic', Standard: 'tier-standard', Premiu
 export default function DashboardPage() {
   const { user, membership, refreshUser } = useAuth()
 
-  const [bookings,       setBookings]       = useState([])
-  const [voortgang,      setVoortgang]      = useState(null)
-  const [ptBalance,      setPtBalance]      = useState(null)
-  const [ptBookings,     setPtBookings]     = useState([])
-  const [trainingAccess, setTrainingAccess] = useState(null)
-  const [trainingProgram,setTrainingProgram]= useState(null)
-  const [measurements,   setMeasurements]   = useState([])
-  const [trainingMeal,   setTrainingMeal]   = useState(null)
-  const [simpleNutrition,setSimpleNutrition]= useState(null)
-  const [loading,        setLoading]        = useState(true)
+  const [bookings,        setBookings]        = useState([])
+  const [voortgang,       setVoortgang]       = useState(null)
+  const [ptBalance,       setPtBalance]       = useState(null)
+  const [ptBookings,      setPtBookings]      = useState([])
+  const [trainingAccess,  setTrainingAccess]  = useState(null)
+  const [trainingProgram, setTrainingProgram] = useState(null)
+  const [measurements,    setMeasurements]    = useState([])
+  const [trainingMeal,    setTrainingMeal]    = useState(null)
+  const [simpleNutrition, setSimpleNutrition] = useState(null)
+  const [workoutLogs,     setWorkoutLogs]     = useState([])
+  const [programDays,     setProgramDays]     = useState([])
+  const [loading,         setLoading]         = useState(true)
 
+  // ── Fase 1: kerngegevens laden ────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
@@ -60,14 +63,16 @@ export default function DashboardPage() {
 
         // Trainingsplatform-content alleen ophalen bij bevestigde toegang (voorkomt onnodige 403's)
         if (accessR.status === 'fulfilled' && accessR.value.data.has_access) {
-          const [progR, measR, nutR] = await Promise.allSettled([
+          const [progR, measR, nutR, logsR] = await Promise.allSettled([
             api.get('/training/my/program'),
             api.get('/training/my/measurements'),
             api.get('/training/my/nutrition'),
+            api.get('/training/my/logs', { params: { limit: 100 } }),
           ])
           if (progR.status === 'fulfilled') setTrainingProgram(progR.value.data.user_program)
           if (measR.status === 'fulfilled') setMeasurements(measR.value.data.measurements || [])
           if (nutR.status === 'fulfilled')  setTrainingMeal(nutR.value.data.plan)
+          if (logsR.status === 'fulfilled') setWorkoutLogs(logsR.value.data.logs || [])
         }
       } catch (e) {
         console.error(e)
@@ -77,6 +82,14 @@ export default function DashboardPage() {
     }
     load()
   }, [])
+
+  // ── Fase 2: programmadagen ophalen zodra het actieve programma bekend is ──
+  useEffect(() => {
+    if (!trainingProgram?.program_id) return
+    api.get(`/training/programs/${trainingProgram.program_id}`)
+      .then((r) => setProgramDays(r.data.program?.days || []))
+      .catch(() => {})
+  }, [trainingProgram])
 
   if (loading) {
     return (
@@ -91,6 +104,7 @@ export default function DashboardPage() {
   const upcomingClasses = bookings
     .filter((b) => b.status === 'confirmed' && new Date(b.date_time) > now)
     .sort((a, b) => new Date(a.date_time) - new Date(b.date_time))
+  const nextClass = upcomingClasses[0] || null
 
   const firstOfMonth = new Date(); firstOfMonth.setDate(1); firstOfMonth.setHours(0, 0, 0, 0)
   const classesUsedThisMonth = bookings.filter(
@@ -103,6 +117,7 @@ export default function DashboardPage() {
   const upcomingPt = ptBookings
     .filter((b) => b.status === 'confirmed' && new Date(b.date_time) > now)
     .sort((a, b) => new Date(a.date_time) - new Date(b.date_time))
+  const nextPt = upcomingPt[0] || null
   const completedPtSessions = ptBookings.filter(
     (b) => b.status === 'confirmed' && new Date(b.date_time) <= now
   ).length
@@ -110,24 +125,41 @@ export default function DashboardPage() {
   const isPtClient = !!(ptBalance?.subscription) || Number(ptBalance?.total_remaining) > 0
   const ptTier = ptBalance?.subscription ? PT_TIER_BY_FREQ[ptBalance.subscription.freq_per_week] : null
 
-  // ── Eén "volgende sessie": vroegste van groepsles of PT ────────────────────
-  const nextClass = upcomingClasses[0] || null
-  const nextPt = upcomingPt[0] || null
-  let nextSession = null
-  if (nextClass && nextPt) {
-    nextSession = new Date(nextClass.date_time) <= new Date(nextPt.date_time)
-      ? { type: 'class', ...nextClass } : { type: 'pt', ...nextPt }
-  } else if (nextClass) nextSession = { type: 'class', ...nextClass }
-  else if (nextPt)      nextSession = { type: 'pt', ...nextPt }
-
   const geldigheid    = voortgang?.geldigheid || null
   const hasFonds       = !!geldigheid?.fonds
   const hasRittenkaart = !!geldigheid?.rittenkaart
-  const hasAnyMembershipInfo = !!membership || hasRittenkaart || hasFonds
+  // Een PT-klant heeft al een actieve, betalende relatie met de gym — "geen abonnement" is dan niet correct.
+  const hasAnyMembershipInfo = !!membership || hasRittenkaart || hasFonds || isPtClient
 
   const latestMeasurement = measurements[0] || null
+  const prevMeasurement   = measurements[1] || null
+  const weightTrend = latestMeasurement?.weight_kg != null && prevMeasurement?.weight_kg != null
+    ? Number(latestMeasurement.weight_kg) - Number(prevMeasurement.weight_kg)
+    : null
+
   // Voedingsschema: gebruik het rijkere trainingsplatform-schema als het bestaat, anders het eenvoudige Mijn Voortgang-schema
   const nutritionSource = trainingMeal ? 'training' : (simpleNutrition?.template ? 'voortgang' : null)
+
+  // "Volgende workout": volgt de programmavolgorde op basis van hoeveel workouts al gelogd zijn — reële, afgeleide data.
+  const nextWorkoutDay = programDays.length > 0 ? programDays[workoutLogs.length % programDays.length] : null
+  const lastWorkout = workoutLogs[0] || null
+
+  // ── Persoonlijke statusregel (echte data, geen verzonnen tekst) ───────────
+  let statusLine = 'Klaar voor je volgende training?'
+  if (voortgang) {
+    if (voortgang.is_inactive) statusLine = 'Tijd om de draad weer op te pakken 💪'
+    else if (voortgang.visits_this_week > 0) statusLine = `Je hebt deze week al ${voortgang.visits_this_week}× getraind — knap gedaan!`
+    else if (voortgang.current_streak_weeks > 0) statusLine = `Je hebt een actieve streak van ${voortgang.current_streak_weeks} ${voortgang.current_streak_weeks === 1 ? 'week' : 'weken'}.`
+  }
+
+  // ── Premium-functies: per functie een eigen, eerlijke ontgrendel-check ────
+  const premiumFeatures = [
+    { key: 'voeding',   icon: '🥗', title: 'Persoonlijk voedingsschema',     unlocked: !!nutritionSource },
+    { key: 'training',  icon: '🎥', title: 'Online trainingen',              unlocked: !!trainingAccess?.has_access },
+    { key: 'analyse',   icon: '📊', title: 'Uitgebreide lichaamsanalyse',    unlocked: measurements.length > 0 },
+    { key: 'coaching',  icon: '🥊', title: 'Persoonlijke coaching',          unlocked: isPtClient },
+    { key: 'shop',      icon: '🛍️', title: 'MH Gym Shop-korting',            unlocked: false },
+  ]
 
   return (
     <div className="page">
@@ -139,10 +171,10 @@ export default function DashboardPage() {
           </div>
           <div>
             <h1 className="welcome-title">
-              Goed bezig, <span>{user?.first_name}</span>!
+              Goed bezig, <span>{user?.first_name}</span> 👋
             </h1>
             <p className="welcome-sub">
-              {new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {statusLine}
               {isPtClient && ptTier && (
                 <span className={`tier-badge ${PT_TIER_CLASS[ptTier]}`} style={{ marginLeft: '0.75rem' }}>
                   <Zap size={11} /> PT {ptTier}
@@ -186,7 +218,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Sectie: Overzicht ─────────────────────────────────────────────── */}
+      {/* ── 2. Snel overzicht ─────────────────────────────────────────────── */}
       <div className="dash-section">
         <div className="dash-card-grid">
           {/* Lidmaatschap / Sportfonds / Rittenkaart */}
@@ -209,6 +241,11 @@ export default function DashboardPage() {
               <>
                 <span className="stat-value" style={{ fontSize: '1.3rem' }}>{geldigheid.rittenkaart.type_naam}</span>
                 <span className="stat-sub">{geldigheid.rittenkaart.ritten_resterend} van {geldigheid.rittenkaart.ritten_totaal} ritten resterend</span>
+              </>
+            ) : isPtClient ? (
+              <>
+                <span className="stat-value" style={{ fontSize: '1.3rem' }}>PT-klant</span>
+                <span className="stat-sub">Geen groepslessen-abonnement</span>
               </>
             ) : (
               <>
@@ -236,16 +273,14 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Volgende sessie (groepsles of PT, wat eerder is) */}
+          {/* Volgende training — uitsluitend groepslessen (PT staat in de PT-kaart) */}
           <div className="stat-card">
             <Clock size={20} className="stat-icon" />
             <span className="stat-label">Volgende training</span>
-            {nextSession ? (
+            {nextClass ? (
               <>
-                <span className="stat-value" style={{ fontSize: '1.3rem' }}>{formatDate(nextSession.date_time)}</span>
-                <span className="stat-sub">
-                  {formatTime(nextSession.date_time)} · {nextSession.type === 'pt' ? 'Personal Training' : nextSession.class_name}
-                </span>
+                <span className="stat-value" style={{ fontSize: '1.3rem' }}>{formatDate(nextClass.date_time)}</span>
+                <span className="stat-sub">{formatTime(nextClass.date_time)} · {nextClass.class_name}</span>
               </>
             ) : (
               <>
@@ -267,42 +302,145 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Sectie: PT (alleen voor PT-klanten) ─────────────────────────────── */}
+      {/* ── 3. PT — één geconsolideerde kaart ────────────────────────────────── */}
       {isPtClient && (
         <div className="dash-section">
           <div className="section-header">
             <h2><Zap size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Personal Training</h2>
             <Link to="/personal-training" className="btn btn-ghost btn-sm">Bekijk PT <ArrowRight size={14} /></Link>
           </div>
+          <div className="pt-card">
+            <div className="pt-card-header">
+              <div className="pt-card-title">
+                <Zap size={18} style={{ color: 'var(--accent)' }} />
+                {ptBalance.subscription ? 'PT-abonnement' : 'PT-lessenpakket'}
+              </div>
+              {ptTier && <span className={`tier-badge ${PT_TIER_CLASS[ptTier]}`}>{ptTier}</span>}
+            </div>
+            <div className="pt-stats-row">
+              <div className="mini-stat">
+                <span className="mini-stat-label">Resterende lessen</span>
+                <span className="mini-stat-value">{ptBalance.total_remaining ?? 0}</span>
+                <span className="mini-stat-sub">{ptBalance.subscription ? `${ptBalance.subscription.freq_per_week}×/week` : 'Losse pakketten'}</span>
+              </div>
+              <div className="mini-stat">
+                <span className="mini-stat-label">Gevolgde trainingen</span>
+                <span className="mini-stat-value">{completedPtSessions}</span>
+                <span className="mini-stat-sub">totaal afgerond</span>
+              </div>
+              <div className="mini-stat">
+                <span className="mini-stat-label">Volgende PT-sessie</span>
+                {nextPt ? (
+                  <>
+                    <span className="mini-stat-value" style={{ fontSize: '1.15rem' }}>{formatDate(nextPt.date_time)}</span>
+                    <span className="mini-stat-sub">{formatTime(nextPt.date_time)}{nextPt.trainer ? ` · ${nextPt.trainer}` : ''}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="mini-stat-value" style={{ fontSize: '1.15rem' }}>–</span>
+                    <span className="mini-stat-sub">Nog niets geboekt</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 4. Mijn Voortgang (lichaamsmetingen) ─────────────────────────────── */}
+      {trainingAccess?.has_access && (
+        <div className="dash-section">
+          <div className="section-header">
+            <h2><Ruler size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Mijn Voortgang</h2>
+            <Link to="/training" className="btn btn-ghost btn-sm">Details <ArrowRight size={14} /></Link>
+          </div>
+          <div className="progress-card">
+            {latestMeasurement ? (
+              <>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Laatste meting: {formatDate(latestMeasurement.date)}
+                </div>
+                <div className="metric-grid">
+                  <div className="metric-item">
+                    <div className="metric-value">
+                      {latestMeasurement.weight_kg != null ? `${latestMeasurement.weight_kg}` : '–'}
+                      {latestMeasurement.weight_kg != null && <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}> kg</span>}
+                    </div>
+                    <div className="metric-label">Gewicht</div>
+                    {weightTrend !== null && (
+                      <div className={weightTrend > 0 ? 'trend-up' : weightTrend < 0 ? 'trend-down' : 'trend-flat'} style={{ fontSize: '0.72rem' }}>
+                        {weightTrend > 0 ? '▲' : weightTrend < 0 ? '▼' : '–'} {Math.abs(weightTrend).toFixed(1)} kg
+                      </div>
+                    )}
+                  </div>
+                  <div className="metric-item">
+                    <div className="metric-value">{latestMeasurement.body_fat_pct != null ? `${latestMeasurement.body_fat_pct}%` : '–'}</div>
+                    <div className="metric-label">Vetpercentage</div>
+                  </div>
+                  <div className="metric-item">
+                    <div className="metric-value unavailable">–</div>
+                    <div className="metric-label">BMI</div>
+                    <div className="metric-note">lengte nog niet geregistreerd</div>
+                  </div>
+                  <div className="metric-item">
+                    <div className="metric-value unavailable">–</div>
+                    <div className="metric-label">Spiermassa</div>
+                    <div className="metric-note">nog niet gemeten</div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '0.5rem 0' }}>
+                <p style={{ fontSize: '0.88rem' }}>Nog geen lichaamsmeting geregistreerd. Vraag je coach om een meting in te plannen.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. Mijn Training ──────────────────────────────────────────────────── */}
+      {trainingProgram && (
+        <div className="dash-section">
+          <div className="section-header">
+            <h2><Target size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Mijn Training</h2>
+            <Link to="/training" className="btn btn-ghost btn-sm">Naar trainingen <ArrowRight size={14} /></Link>
+          </div>
           <div className="dash-card-grid">
             <div className="stat-card">
-              <Ticket size={18} className="stat-icon" />
-              <span className="stat-label">Resterende lessen</span>
-              <span className="stat-value">{ptBalance.total_remaining ?? 0}</span>
-              <span className="stat-sub">
-                {ptBalance.subscription
-                  ? `Abonnement · ${ptTier || ptBalance.subscription.freq_per_week + '×/week'}`
-                  : 'Losse pakketten'}
-              </span>
+              <Target size={18} className="stat-icon" />
+              <span className="stat-label">Trainingsprogramma</span>
+              <span className="stat-value" style={{ fontSize: '1.2rem' }}>{trainingProgram.program_name}</span>
+              <span className="stat-sub">{trainingProgram.goal} · {trainingProgram.sessions_per_week}×/week</span>
             </div>
             <div className="stat-card">
-              <Award size={18} className="stat-icon" />
-              <span className="stat-label">Gevolgde trainingen</span>
-              <span className="stat-value">{completedPtSessions}</span>
-              <span className="stat-sub">totaal afgeronde sessies</span>
-            </div>
-            <div className="stat-card">
-              <Clock size={18} className="stat-icon" />
-              <span className="stat-label">Volgende PT-sessie</span>
-              {nextPt ? (
+              <Dumbbell size={18} className="stat-icon" />
+              <span className="stat-label">Volgende workout</span>
+              {nextWorkoutDay ? (
                 <>
-                  <span className="stat-value" style={{ fontSize: '1.2rem' }}>{formatDate(nextPt.date_time)}</span>
-                  <span className="stat-sub">{formatTime(nextPt.date_time)}{nextPt.trainer ? ` · ${nextPt.trainer}` : ''}</span>
+                  <span className="stat-value" style={{ fontSize: '1.2rem' }}>
+                    {nextWorkoutDay.is_rest_day ? 'Rustdag' : nextWorkoutDay.day_name}
+                  </span>
+                  <span className="stat-sub">{nextWorkoutDay.focus || (nextWorkoutDay.is_rest_day ? 'Herstel' : '—')}</span>
                 </>
               ) : (
                 <>
                   <span className="stat-value" style={{ fontSize: '1.3rem' }}>–</span>
-                  <span className="stat-sub">Nog niets geboekt</span>
+                  <span className="stat-sub">Nog geen programmadagen</span>
+                </>
+              )}
+            </div>
+            <div className="stat-card">
+              <ScrollText size={18} className="stat-icon" />
+              <span className="stat-label">Laatste workout</span>
+              {lastWorkout ? (
+                <>
+                  <span className="stat-value" style={{ fontSize: '1.2rem' }}>{formatDate(lastWorkout.date)}</span>
+                  <span className="stat-sub">{lastWorkout.day_name || 'Training'}{lastWorkout.exercise_count ? ` · ${lastWorkout.exercise_count} oefeningen` : ''}</span>
+                </>
+              ) : (
+                <>
+                  <span className="stat-value" style={{ fontSize: '1.3rem' }}>–</span>
+                  <span className="stat-sub">Nog niets gelogd</span>
                 </>
               )}
             </div>
@@ -310,56 +448,38 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Sectie: Trainingsvoortgang (programma/meting/voeding indien aanwezig) ── */}
-      {(trainingProgram || latestMeasurement || nutritionSource) && (
-        <div className="dash-section">
-          <div className="section-header">
-            <h2><Target size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Trainingsvoortgang</h2>
-            <Link to="/training" className="btn btn-ghost btn-sm">Naar trainingen <ArrowRight size={14} /></Link>
-          </div>
-          <div className="dash-card-grid">
-            {trainingProgram && (
-              <div className="stat-card">
-                <Target size={18} className="stat-icon" />
-                <span className="stat-label">Trainingsdoel</span>
-                <span className="stat-value" style={{ fontSize: '1.2rem' }}>{trainingProgram.program_name}</span>
-                <span className="stat-sub">{trainingProgram.goal} · {trainingProgram.sessions_per_week}×/week</span>
-              </div>
-            )}
-            {latestMeasurement && (
-              <div className="stat-card">
-                <Ruler size={18} className="stat-icon" />
-                <span className="stat-label">Recente meting</span>
-                <span className="stat-value">{latestMeasurement.weight_kg != null ? `${latestMeasurement.weight_kg} kg` : '–'}</span>
-                <span className="stat-sub">{formatDate(latestMeasurement.date)}</span>
-              </div>
-            )}
-            {nutritionSource === 'training' && (
-              <div className="stat-card">
-                <Utensils size={18} className="stat-icon" />
-                <span className="stat-label">Voedingsschema</span>
-                <span className="stat-value" style={{ fontSize: '1.2rem' }}>{trainingMeal.name}</span>
-                <span className="stat-sub">
-                  {trainingMeal.calories_target ? `${trainingMeal.calories_target} kcal/dag` : trainingMeal.goal}
-                </span>
-              </div>
-            )}
-            {nutritionSource === 'voortgang' && (
-              <Link to="/dashboard/mijn-voortgang" className="stat-card" style={{ textDecoration: 'none' }}>
-                <Utensils size={18} className="stat-icon" />
-                <span className="stat-label">Voedingsschema</span>
-                <span className="stat-value" style={{ fontSize: '1.2rem' }}>{simpleNutrition.template.title}</span>
-                <span className="stat-sub">Bekijk je dagelijkse checklist <ChevronRight size={11} style={{ verticalAlign: 'middle' }} /></span>
-              </Link>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Sectie: Badges & Challenges (placeholder, geen echte data) ──────── */}
+      {/* ── 6. Voeding ───────────────────────────────────────────────────────── */}
       <div className="dash-section">
         <div className="section-header">
-          <h2><Award size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Badges &amp; Challenges</h2>
+          <h2><Utensils size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Voeding</h2>
+        </div>
+        {nutritionSource === 'training' ? (
+          <div className="stat-card" style={{ maxWidth: 420 }}>
+            <Utensils size={18} className="stat-icon" />
+            <span className="stat-label">Voedingsschema</span>
+            <span className="stat-value" style={{ fontSize: '1.2rem' }}>{trainingMeal.name}</span>
+            <span className="stat-sub">{trainingMeal.calories_target ? `${trainingMeal.calories_target} kcal/dag` : trainingMeal.goal}</span>
+          </div>
+        ) : nutritionSource === 'voortgang' ? (
+          <Link to="/dashboard/mijn-voortgang" className="stat-card" style={{ textDecoration: 'none', maxWidth: 420 }}>
+            <Utensils size={18} className="stat-icon" />
+            <span className="stat-label">Voedingsschema</span>
+            <span className="stat-value" style={{ fontSize: '1.2rem' }}>{simpleNutrition.template.title}</span>
+            <span className="stat-sub">Bekijk je dagelijkse checklist <ChevronRight size={11} style={{ verticalAlign: 'middle' }} /></span>
+          </Link>
+        ) : (
+          <div className="coming-soon-card">
+            <div className="cs-icon">🔒</div>
+            <h4>Nog geen voedingsschema</h4>
+            <p>Zodra je coach een voedingsschema voor je klaarzet, verschijnt het hier.</p>
+          </div>
+        )}
+      </div>
+
+      {/* ── 7. Badges & Mijlpalen (placeholder, geen echte data) ────────────── */}
+      <div className="dash-section">
+        <div className="section-header">
+          <h2><Award size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Badges &amp; Mijlpalen</h2>
         </div>
         <div className="coming-soon-card">
           <div className="cs-icon">🏆</div>
@@ -368,7 +488,27 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Sectie: Komende reserveringen ───────────────────────────────────── */}
+      {/* ── 8. Premium ───────────────────────────────────────────────────────── */}
+      <div className="dash-section">
+        <div className="section-header">
+          <h2><Sparkles size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Premium</h2>
+        </div>
+        <div className="premium-grid">
+          {premiumFeatures.map((f) => (
+            <div key={f.key} className={`premium-feature-card ${f.unlocked ? 'unlocked' : 'locked'}`}>
+              <span className="premium-feature-icon">{f.icon}</span>
+              <span className="premium-feature-title">{f.title}</span>
+              <span className={`premium-feature-status ${f.unlocked ? 'is-unlocked' : 'is-locked'}`}>
+                {f.unlocked
+                  ? <><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Beschikbaar</>
+                  : <><Lock size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Nog niet actief</>}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Komende reserveringen ────────────────────────────────────────────── */}
       <div className="dash-section">
         <div className="section-header">
           <h2>Komende reserveringen</h2>

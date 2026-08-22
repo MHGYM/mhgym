@@ -113,7 +113,17 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 }
 .logo-accent { color: var(--accent); }
 
-.navbar-links { display: flex; align-items: center; gap: 0.25rem; }
+.navbar-links {
+  display: flex; align-items: center; gap: 0.25rem;
+  /* Root cause fix: zonder flex:1/min-width:0/overflow-x kan deze rij (12 items)
+     bij normale desktop-breedtes (±768–1690px) niet krimpen of wrappen, waardoor
+     hij de navbar breder maakt dan de viewport en .navbar-user van het scherm duwt. */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.navbar-links::-webkit-scrollbar { display: none; }
 
 .nav-link {
   display: flex; align-items: center; gap: 0.4rem;
@@ -122,6 +132,8 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   font-size: 0.875rem; font-weight: 500;
   color: var(--text-muted);
   transition: var(--t);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .nav-link:hover  { color: var(--text); background: var(--surface-2); }
 .nav-link.active { color: var(--accent); background: var(--accent-dim); }
@@ -539,6 +551,80 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 .coming-soon-card .cs-icon { font-size: 1.8rem; margin-bottom: 0.6rem; opacity: 0.6; }
 .coming-soon-card h4 { color: var(--text-2); font-size: 0.95rem; margin-bottom: 0.3rem; }
 .coming-soon-card p  { font-size: 0.8rem; max-width: 380px; margin: 0 auto; }
+
+/* ── Dashboard: één geconsolideerde PT-kaart ──────────────────────────────── */
+.pt-card {
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(245,194,0,0.08) 0%, transparent 60%),
+    var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 1.5rem 1.75rem;
+}
+.pt-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+}
+.pt-card-title {
+  display: flex; align-items: center; gap: 0.6rem;
+  font-size: 1rem; font-weight: 700;
+}
+.pt-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1.25rem;
+}
+.mini-stat { display: flex; flex-direction: column; gap: 0.3rem; }
+.mini-stat-label { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.mini-stat-value { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.02em; }
+.mini-stat-sub   { font-size: 0.76rem; color: var(--text-muted); }
+
+/* ── Dashboard: voortgang/meetkaart ────────────────────────────────────────── */
+.progress-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 1.5rem 1.75rem;
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+.metric-item { text-align: center; }
+.metric-value { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+.metric-value.unavailable { color: var(--text-muted); font-size: 1.2rem; }
+.metric-label { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.metric-note  { font-size: 0.68rem; color: var(--text-muted); opacity: 0.7; margin-top: 0.15rem; }
+.trend-up   { color: var(--warning); font-weight: 700; }
+.trend-down { color: var(--success); font-weight: 700; }
+.trend-flat { color: var(--text-muted); font-weight: 700; }
+
+/* ── Dashboard: Premium feature-grid ──────────────────────────────────────── */
+.premium-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.85rem;
+}
+.premium-feature-card {
+  border-radius: var(--r-lg);
+  padding: 1.1rem 1.25rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: var(--t);
+}
+.premium-feature-card.unlocked {
+  border-color: rgba(245,194,0,0.3);
+  background: linear-gradient(135deg, rgba(245,194,0,0.06) 0%, var(--surface) 100%);
+}
+.premium-feature-card.locked { opacity: 0.6; }
+.premium-feature-icon { font-size: 1.3rem; }
+.premium-feature-title { font-size: 0.88rem; font-weight: 700; }
+.premium-feature-status { font-size: 0.72rem; font-weight: 600; }
+.premium-feature-status.is-unlocked { color: var(--accent); }
+.premium-feature-status.is-locked   { color: var(--text-muted); }
 .booking-time {
   background: var(--accent-dim); color: var(--accent);
   border-radius: var(--r-sm);
