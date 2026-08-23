@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   TrendingUp, Calendar, Utensils, Flame, Clock, Ticket, CreditCard,
-  CheckCircle2, Circle, AlertTriangle, User, MapPin, Dumbbell, Ruler,
+  CheckCircle2, Circle, AlertTriangle, User, MapPin, Dumbbell, Ruler, X,
 } from 'lucide-react'
 import api from '../api'
+import AuthedImage from '../components/AuthedImage'
 
 const TABS = [
-  { key: 'voortgang',    label: 'Voortgang',    Icon: TrendingUp },
-  { key: 'aanwezigheid', label: 'Aanwezigheid', Icon: Calendar   },
-  { key: 'voeding',      label: 'Voeding',       Icon: Utensils   },
-  { key: 'meetrapport',  label: 'Meetrapport',  Icon: Ruler      },
+  { key: 'voortgang',       label: 'Voortgang',       Icon: TrendingUp },
+  { key: 'aanwezigheid',    label: 'Aanwezigheid',    Icon: Calendar   },
+  { key: 'voeding',         label: 'Voeding',          Icon: Utensils   },
+  { key: 'meetresultaten',  label: 'Meetresultaten',  Icon: Ruler      },
 ]
 
 function fmtDate(s) {
@@ -55,10 +56,10 @@ export default function MijnVoortgangPage() {
         ))}
       </div>
 
-      {tab === 'voortgang'    && <VoortgangTab overview={overview} />}
-      {tab === 'aanwezigheid' && <AanwezigheidTab />}
-      {tab === 'voeding'      && <VoedingTab />}
-      {tab === 'meetrapport'  && <MeetrapportTab />}
+      {tab === 'voortgang'      && <VoortgangTab overview={overview} />}
+      {tab === 'aanwezigheid'   && <AanwezigheidTab />}
+      {tab === 'voeding'        && <VoedingTab />}
+      {tab === 'meetresultaten' && <MeetresultatenTab />}
     </div>
   )
 }
@@ -386,50 +387,94 @@ function VoedingTab() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// TAB: MEETRAPPORT
+// TAB: MEETRESULTATEN + BADGES
 // ════════════════════════════════════════════════════════════════════
-function MeetrapportTab() {
-  const [report, setReport] = useState(undefined) // undefined = laden, null = geen rapport
-  const [imgUrl, setImgUrl] = useState(null)
+function fmtFullDate(s) {
+  return s ? new Date(s).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'
+}
+
+function MeetresultatenTab() {
+  const [reports, setReports]   = useState(undefined) // undefined = laden
+  const [badges, setBadges]     = useState([])
+  const [fullscreen, setFullscreen] = useState(null) // report object of null
 
   useEffect(() => {
-    let objectUrl
-    let cancelled = false
-
-    api.get('/voortgang/measurement-report/mine').then(r => {
-      if (cancelled) return
-      setReport(r.data.report)
-      if (!r.data.report) return
-      return api.get('/voortgang/measurement-report/mine/image', { responseType: 'blob' }).then(res => {
-        if (cancelled) return
-        objectUrl = URL.createObjectURL(res.data)
-        setImgUrl(objectUrl)
-      })
-    }).catch(() => { if (!cancelled) setReport(null) })
-
-    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+    api.get('/voortgang/measurement-reports/mine').then(r => setReports(r.data.reports || [])).catch(() => setReports([]))
+    api.get('/voortgang/badges/mine').then(r => setBadges(r.data.badges || [])).catch(() => {})
   }, [])
 
-  if (report === undefined) return <p style={{ color: 'var(--text-muted)' }}>Laden…</p>
-
-  if (!report) {
-    return (
-      <div className="empty-state" style={{ padding: '2.5rem' }}>
-        <div className="empty-state-icon"><Ruler size={36} /></div>
-        <h3>Nog geen meetrapport</h3>
-        <p>Zodra MH Gym een lichaamsanalyse-/weegschaalrapport voor je uploadt, verschijnt dat hier.</p>
-      </div>
-    )
-  }
+  if (reports === undefined) return <p style={{ color: 'var(--text-muted)' }}>Laden…</p>
 
   return (
-    <div className="card" style={{ maxWidth: 480 }}>
-      <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.75rem' }}>
-        Meting van {fmtDate(report.measured_at)}
-      </div>
-      {imgUrl
-        ? <img src={imgUrl} alt="Mijn meetrapport" style={{ width: '100%', borderRadius: 'var(--r)', display: 'block' }} />
-        : <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Afbeelding laden…</div>}
+    <div>
+      {/* Badges */}
+      {badges.length > 0 && (
+        <div style={{ marginBottom: '1.5rem' }}>
+          <h3 style={{ fontSize: '0.95rem', marginBottom: '0.6rem' }}>Badges</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.5rem' }}>
+            {badges.map(b => (
+              <div
+                key={b.key}
+                title={b.description}
+                style={{
+                  padding: '0.6rem 0.7rem', borderRadius: 'var(--r)',
+                  background: b.earned ? 'var(--surface-2)' : 'transparent',
+                  border: `1px solid ${b.earned ? 'var(--accent)' : 'var(--border)'}`,
+                  opacity: b.earned ? 1 : 0.45,
+                }}
+              >
+                <div style={{ fontSize: '1.3rem', lineHeight: 1 }}>{b.icon}</div>
+                <div style={{ fontWeight: 700, fontSize: '0.8rem', marginTop: 4 }}>{b.label}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{b.description}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Meetresultaten */}
+      <h3 style={{ fontSize: '0.95rem', marginBottom: '0.6rem' }}>Mijn meetresultaten</h3>
+
+      {reports.length === 0 ? (
+        <div className="empty-state" style={{ padding: '2.5rem' }}>
+          <div className="empty-state-icon"><Ruler size={36} /></div>
+          <h3>Je hebt nog geen meetresultaten.</h3>
+          <p>Zodra MH Gym een lichaamsanalyse-/weegschaalrapport voor je uploadt, verschijnt dat hier.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.75rem' }}>
+          {reports.map(rep => (
+            <div key={rep.id} className="card" style={{ padding: '0.5rem', cursor: 'pointer' }} onClick={() => setFullscreen(rep)}>
+              <AuthedImage
+                src={`/voortgang/measurement-reports/mine/${rep.id}/image`}
+                alt={rep.title || fmtFullDate(rep.measured_at)}
+                style={{ width: '100%', height: 130, objectFit: 'cover', borderRadius: 'var(--r-sm)' }}
+              />
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginTop: '0.4rem' }}>{rep.title || 'Meetresultaat'}</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{fmtFullDate(rep.measured_at)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Fullscreen viewer */}
+      {fullscreen && (
+        <div className="modal-overlay" onClick={() => setFullscreen(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: '90vw', width: 'auto' }}>
+            <div className="modal-header">
+              <h3>{fullscreen.title || 'Meetresultaat'} — {fmtFullDate(fullscreen.measured_at)}</h3>
+              <button className="btn-icon" onClick={() => setFullscreen(null)}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '1rem', display: 'flex', justifyContent: 'center' }}>
+              <AuthedImage
+                src={`/voortgang/measurement-reports/mine/${fullscreen.id}/image`}
+                alt={fullscreen.title || fmtFullDate(fullscreen.measured_at)}
+                style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain', borderRadius: 'var(--r)' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

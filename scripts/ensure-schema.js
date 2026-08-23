@@ -483,6 +483,35 @@ async function ensureSchema() {
     )
   `);
 
+  // ── Behaalde badges per lid (badge-definities staan centraal in
+  // src/config/badges.js + src/services/badgeService.js) ───────────────────────
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS member_badges (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      badge_key  TEXT    NOT NULL,
+      earned_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, badge_key)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_member_badges_user ON member_badges(user_id)`);
+
+  // ── Door de trainer ingesteld, meetbaar doel per lid (voor de "Doel Bereikt"-badge) ──
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS member_goals (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      metric       TEXT    NOT NULL,
+      target_value REAL    NOT NULL,
+      direction    TEXT    NOT NULL,
+      created_by   INTEGER REFERENCES users(id),
+      achieved_at  TEXT,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_member_goals_user ON member_goals(user_id, achieved_at)`);
+
   // ── ALTER TABLE safety patches (for existing DBs missing columns) ─────────────
   const patches = [
     // users
@@ -535,6 +564,8 @@ async function ensureSchema() {
     // pt_subscriptions — tier-onderscheiding (Basic/Standard/Premium). NULL voor
     // bestaande abonnementen (aangemaakt vóór de tier-structuur) — geen aanname, geen gok.
     `ALTER TABLE pt_subscriptions ADD COLUMN tier TEXT`,
+    // measurement_reports — optioneel label/titel per meetresultaat.
+    `ALTER TABLE measurement_reports ADD COLUMN title TEXT`,
   ];
   for (const sql of patches) { await run(sql); }
 

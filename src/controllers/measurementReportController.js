@@ -20,17 +20,20 @@
  *   DELETE /admin/measurement-reports/:reportId            — verwijderen (afbeelding + waarden)
  *
  * Endpoints voor het lid zelf (gemount onder /api/voortgang, authenticate):
- *   GET /voortgang/measurement-report/mine        — metadata van het eigen, meest recente rapport
- *   GET /voortgang/measurement-report/mine/image  — de afbeelding zelf
- * Deze twee nemen het lid-ID uitsluitend uit het JWT (req.user.id) — er wordt
- * nergens een report-ID of user-ID uit de request geaccepteerd, dus er is geen
- * ID/URL om te manipuleren om andermans rapport te zien.
+ *   GET /voortgang/measurement-reports/mine               — lijst van alle eigen meetresultaten
+ *   GET /voortgang/measurement-reports/mine/:reportId/image — de afbeelding van één eigen rapport
+ * De lijst wordt uitsluitend gefilterd op req.user.id (uit het JWT). Het
+ * image-endpoint accepteert wél een report-ID (nodig om een specifieke kaart
+ * te openen), maar controleert bij elke request opnieuw `WHERE id = ? AND
+ * user_id = ?` — een lid kan dus nooit, ook niet door het ID te raden of te
+ * wijzigen, de afbeelding van iemand anders ophalen.
  */
 
 const fs   = require('fs');
 const path = require('path');
 const db   = require('../config/database');
 const { extractMeasurementValues, FIELD_NAMES } = require('../services/visionExtractionService');
+const badgeService = require('../services/badgeService');
 
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB — ruim voldoende voor een foto/screenshot
 const ALLOWED_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -69,7 +72,7 @@ const listForMember = async (req, res) => {
   if (!(await memberExists(userId))) return res.status(404).json({ error: 'Lid niet gevonden.' });
 
   const result = await db.execute({
-    sql: `SELECT mr.id, mr.user_id, mr.measured_at, mr.mime_type, mr.created_at,
+    sql: `SELECT mr.id, mr.user_id, mr.measured_at, mr.title, mr.mime_type, mr.created_at,
                  mrv.extraction_status, mrv.weight_kg, mrv.bmi, mrv.body_fat_pct
           FROM measurement_reports mr
           LEFT JOIN measurement_report_values mrv ON mrv.report_id = mr.id
@@ -84,10 +87,11 @@ const uploadForMember = async (req, res) => {
   const userId = parseInt(req.params.id, 10);
   if (!(await memberExists(userId))) return res.status(404).json({ error: 'Lid niet gevonden.' });
 
-  const { measured_at, image_data } = req.body;
+  const { measured_at, image_data, title } = req.body;
   if (!measured_at || !/^\d{4}-\d{2}-\d{2}$/.test(measured_at)) {
     return res.status(400).json({ error: 'Geef een geldige datum op (JJJJ-MM-DD).' });
   }
+  const trimmedTitle = typeof title === 'string' ? title.trim().slice(0, 120) : '';
 
   const parsed = parseImageDataUrl(image_data);
   if (!parsed) {
@@ -99,14 +103,14 @@ const uploadForMember = async (req, res) => {
   fs.writeFileSync(path.join(UPLOADS_DIR, filename), parsed.buffer);
 
   const insert = await db.execute({
-    sql: `INSERT INTO measurement_reports (user_id, measured_at, filename, mime_type, uploaded_by)
-          VALUES (?, ?, ?, ?, ?)`,
-    args: [userId, measured_at, filename, parsed.mime, req.user.id],
+    sql: `INSERT INTO measurement_reports (user_id, measured_at, filename, mime_type, uploaded_by, title)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+    args: [userId, measured_at, filename, parsed.mime, req.user.id, trimmedTitle || null],
   });
   const reportId = Number(insert.lastInsertRowid);
 
   const created = await db.execute({
-    sql: `SELECT id, user_id, measured_at, mime_type, created_at FROM measurement_reports WHERE id = ?`,
+    sql: `SELECT id, user_id, measured_at, title, mime_type, created_at FROM measurement_reports WHERE id = ?`,
     args: [reportId],
   });
 
@@ -128,7 +132,14 @@ const uploadForMember = async (req, res) => {
     args: [reportId],
   });
 
-  res.status(201).json({ report: created.rows[0], values: valuesRow.rows[0] });
+  // Elke upload telt als een meetmoment — kan "Eerste Meting"/"Consistent"/
+  // "Toegewijd" meteen doen afgaan. Mag de upload nooit laten falen.
+  const newBadges = await badgeService.evaluateAndAwardBadges(userId).catch((e) => {
+    console.error('[Badges] Evalueren na upload mislukt:', e.message);
+    return [];
+  });
+
+  res.status(201).json({ report: created.rows[0], values: valuesRow.rows[0], new_badges: newBadges });
 };
 
 // ── GET /admin/measurement-reports/:reportId/values ───────────────────────────
@@ -150,7 +161,7 @@ const getValues = async (req, res) => {
 // Admin corrigeert (optioneel) de voorgestelde waarden en bevestigt ze definitief.
 const confirmValues = async (req, res) => {
   const reportRes = await db.execute({
-    sql: 'SELECT id FROM measurement_reports WHERE id = ?',
+    sql: 'SELECT id, user_id FROM measurement_reports WHERE id = ?',
     args: [req.params.reportId],
   });
   if (!reportRes.rows[0]) return res.status(404).json({ error: 'Meetrapport niet gevonden.' });
@@ -186,7 +197,14 @@ const confirmValues = async (req, res) => {
     sql: 'SELECT * FROM measurement_report_values WHERE report_id = ?',
     args: [req.params.reportId],
   });
-  res.json({ values: updated.rows[0] });
+
+  // Bevestigde cijfers kunnen "Sterke Start"/"Progressie"/"Doel Bereikt" doen afgaan.
+  const newBadges = await badgeService.evaluateAndAwardBadges(reportRes.rows[0].user_id).catch((e) => {
+    console.error('[Badges] Evalueren na bevestiging mislukt:', e.message);
+    return [];
+  });
+
+  res.json({ values: updated.rows[0], new_badges: newBadges });
 };
 
 // ── GET /admin/measurement-reports/:reportId/image ────────────────────────────
@@ -225,30 +243,28 @@ const deleteReport = async (req, res) => {
   res.json({ message: 'Meetrapport verwijderd.' });
 };
 
-// ── GET /voortgang/measurement-report/mine ────────────────────────────────────
-// Uitsluitend het eigen, meest recente rapport van de ingelogde gebruiker.
-// "Meest recente" = laatst geüploade (created_at), zodat een nieuwe upload
-// door de admin altijd het rapport vervangt dat het lid te zien krijgt,
-// ongeacht welke measured_at-datum is ingevuld.
-const myReport = async (req, res) => {
+// ── GET /voortgang/measurement-reports/mine ───────────────────────────────────
+// Alle eigen meetresultaten, nieuwste eerst — uitsluitend gefilterd op
+// req.user.id, nooit op een door de client aangeleverd ID.
+const myReports = async (req, res) => {
   const result = await db.execute({
-    sql: `SELECT id, measured_at, mime_type, created_at
+    sql: `SELECT id, measured_at, title, mime_type, created_at
           FROM measurement_reports WHERE user_id = ?
-          ORDER BY created_at DESC LIMIT 1`,
+          ORDER BY created_at DESC`,
     args: [req.user.id],
   });
-  res.json({ report: result.rows[0] || null });
+  res.json({ reports: result.rows });
 };
 
-// ── GET /voortgang/measurement-report/mine/image ──────────────────────────────
+// ── GET /voortgang/measurement-reports/mine/:reportId/image ──────────────────
 const myReportImage = async (req, res) => {
+  const reportId = parseInt(req.params.reportId, 10);
   const result = await db.execute({
-    sql: `SELECT filename, mime_type FROM measurement_reports WHERE user_id = ?
-          ORDER BY created_at DESC LIMIT 1`,
-    args: [req.user.id],
+    sql: `SELECT filename, mime_type FROM measurement_reports WHERE id = ? AND user_id = ?`,
+    args: [reportId, req.user.id],
   });
   const report = result.rows[0];
-  if (!report) return res.status(404).json({ error: 'Nog geen meetrapport beschikbaar.' });
+  if (!report) return res.status(404).json({ error: 'Meetresultaat niet gevonden.' });
 
   const filePath = path.join(UPLOADS_DIR, report.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Afbeelding niet gevonden op schijf.' });
@@ -258,4 +274,4 @@ const myReportImage = async (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 };
 
-module.exports = { listForMember, uploadForMember, getImage, getValues, confirmValues, deleteReport, myReport, myReportImage };
+module.exports = { listForMember, uploadForMember, getImage, getValues, confirmValues, deleteReport, myReports, myReportImage };

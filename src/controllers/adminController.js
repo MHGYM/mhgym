@@ -63,9 +63,11 @@ const listMembers = async (req, res) => {
   `;
   const args = [];
   if (q) {
-    sql += ` WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)`;
+    // Ook op volledige naam ("voornaam achternaam") zoeken — een los first_name-
+    // of last_name-LIKE mist een meerwoordige zoekterm zoals "Sam Jansen".
+    sql += ` WHERE (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ? OR (u.first_name || ' ' || u.last_name) LIKE ?)`;
     const like = `%${q}%`;
-    args.push(like, like, like);
+    args.push(like, like, like, like);
   }
   sql += ' ORDER BY u.created_at DESC';
 
