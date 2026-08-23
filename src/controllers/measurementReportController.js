@@ -66,6 +66,37 @@ async function memberExists(userId) {
   return !!r.rows[0];
 }
 
+// Velden waarvoor we een verschil t.o.v. de vorige meting tonen — bewust een
+// kleine, betekenisvolle subset (niet alle ~30 FIELD_NAMES) die zowel bij
+// badges (GOAL_METRICS) als hier hetzelfde betekenen.
+const DELTA_FIELDS = ['weight_kg', 'bmi', 'body_fat_pct', 'muscle_mass_kg'];
+
+/**
+ * Berekent per rapport het verschil met de vorige BEVESTIGDE meting, voor de
+ * velden in DELTA_FIELDS. Uitsluitend gebaseerd op admin-bevestigde cijfers
+ * (extraction_status='confirmed') — nooit een verschil verzinnen op basis van
+ * een losse, niet-gecontroleerde AI-uitlezing.
+ * Verwacht `rowsAscending` = chronologisch oplopend (oudste eerst).
+ */
+function attachDeltas(rowsAscending) {
+  let prevConfirmed = null;
+  const withDeltas = rowsAscending.map((r) => {
+    let deltas = null;
+    if (r.extraction_status === 'confirmed' && prevConfirmed) {
+      const d = {};
+      for (const f of DELTA_FIELDS) {
+        if (r[f] != null && prevConfirmed[f] != null) {
+          d[f] = Math.round((r[f] - prevConfirmed[f]) * 100) / 100;
+        }
+      }
+      if (Object.keys(d).length > 0) deltas = d;
+    }
+    if (r.extraction_status === 'confirmed') prevConfirmed = r;
+    return { ...r, deltas };
+  });
+  return withDeltas;
+}
+
 // ── GET /admin/members/:id/measurement-reports ────────────────────────────────
 const listForMember = async (req, res) => {
   const userId = parseInt(req.params.id, 10);
@@ -73,13 +104,14 @@ const listForMember = async (req, res) => {
 
   const result = await db.execute({
     sql: `SELECT mr.id, mr.user_id, mr.measured_at, mr.title, mr.mime_type, mr.created_at,
-                 mrv.extraction_status, mrv.weight_kg, mrv.bmi, mrv.body_fat_pct
+                 mrv.extraction_status, mrv.weight_kg, mrv.bmi, mrv.body_fat_pct, mrv.muscle_mass_kg
           FROM measurement_reports mr
           LEFT JOIN measurement_report_values mrv ON mrv.report_id = mr.id
-          WHERE mr.user_id = ? ORDER BY mr.measured_at DESC, mr.created_at DESC`,
+          WHERE mr.user_id = ? ORDER BY mr.created_at ASC, mr.id ASC`,
     args: [userId],
   });
-  res.json({ reports: result.rows });
+  const withDeltas = attachDeltas(result.rows).reverse(); // nieuwste eerst voor weergave
+  res.json({ reports: withDeltas });
 };
 
 // ── POST /admin/members/:id/measurement-reports ───────────────────────────────
@@ -248,12 +280,16 @@ const deleteReport = async (req, res) => {
 // req.user.id, nooit op een door de client aangeleverd ID.
 const myReports = async (req, res) => {
   const result = await db.execute({
-    sql: `SELECT id, measured_at, title, mime_type, created_at
-          FROM measurement_reports WHERE user_id = ?
-          ORDER BY created_at DESC`,
+    sql: `SELECT mr.id, mr.measured_at, mr.title, mr.mime_type, mr.created_at,
+                 mrv.extraction_status, mrv.weight_kg, mrv.bmi, mrv.body_fat_pct, mrv.muscle_mass_kg
+          FROM measurement_reports mr
+          LEFT JOIN measurement_report_values mrv ON mrv.report_id = mr.id
+          WHERE mr.user_id = ?
+          ORDER BY mr.created_at ASC, mr.id ASC`,
     args: [req.user.id],
   });
-  res.json({ reports: result.rows });
+  const withDeltas = attachDeltas(result.rows).reverse(); // nieuwste eerst voor weergave
+  res.json({ reports: withDeltas });
 };
 
 // ── GET /voortgang/measurement-reports/mine/:reportId/image ──────────────────

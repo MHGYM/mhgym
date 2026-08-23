@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Edit2, Trash2, Check, X, Utensils, Camera, Eye, Search, Target, Award } from 'lucide-react'
+import { Plus, Edit2, Trash2, Check, X, Utensils, Camera, Eye, Search, Target, Award, TrendingUp, TrendingDown } from 'lucide-react'
 import api from '../../api'
 import AuthedImage from '../../components/AuthedImage'
 
@@ -32,7 +32,87 @@ export default function VoortgangAdmin() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// TAB: VOEDINGSSCHEMA'S (ongewijzigd overgenomen)
+// Gedeeld: live zoekbalk om een lid te selecteren
+// ════════════════════════════════════════════════════════════════════
+function MemberSearchPicker({ onSelect, placeholder = 'Zoek lid op naam of e-mail…' }) {
+  const [query, setQuery]     = useState('')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [showResults, setShowResults] = useState(false)
+  const debounceRef = useRef(null)
+
+  const search = (q) => {
+    setQuery(q)
+    clearTimeout(debounceRef.current)
+    if (!q.trim()) { setResults([]); setShowResults(false); return }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const r = await api.get(`/admin/members?q=${encodeURIComponent(q.trim())}`)
+        setResults(r.data.members || [])
+        setShowResults(true)
+      } catch (_) { setResults([]) }
+      finally { setSearching(false) }
+    }, 350)
+  }
+
+  const pick = (m) => {
+    setQuery(`${m.first_name} ${m.last_name}`)
+    setShowResults(false)
+    onSelect(m)
+  }
+
+  return (
+    <div style={{ position: 'relative', maxWidth: 420 }}>
+      <label className="input-label">Lid</label>
+      <div style={{ position: 'relative' }}>
+        <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+        <input
+          className="input"
+          style={{ paddingLeft: 32 }}
+          placeholder={placeholder}
+          value={query}
+          onChange={e => search(e.target.value)}
+          onFocus={() => { if (results.length) setShowResults(true) }}
+        />
+      </div>
+
+      {showResults && (
+        <div className="card" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, marginTop: 4, maxHeight: 260, overflowY: 'auto', padding: '0.4rem' }}>
+          {searching && <div style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Zoeken…</div>}
+          {!searching && results.length === 0 && (
+            <div style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Geen leden gevonden.</div>
+          )}
+          {!searching && results.map(m => (
+            <div
+              key={m.id}
+              onClick={() => pick(m)}
+              style={{ padding: '0.5rem 0.6rem', borderRadius: 'var(--r-sm)', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-3)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{m.first_name} {m.last_name}</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{m.email}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SelectedMemberBar({ member, onClear }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem', padding: '0.6rem 0.9rem', background: 'var(--surface-2)', borderRadius: 'var(--r)' }}>
+      <span style={{ fontWeight: 700 }}>Geselecteerd: {member.first_name} {member.last_name}</span>
+      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>({member.email})</span>
+      <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={onClear}><X size={13} /> Wissel lid</button>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// TAB: VOEDINGSSCHEMA'S — nu met zoekbalk i.p.v. volledige ledenlijst
 // ════════════════════════════════════════════════════════════════════
 const MEAL_KEYS = [
   { key: 'ontbijt', label: 'Ontbijt' },
@@ -44,18 +124,13 @@ const MEAL_KEYS = [
 const emptyMeals = () => MEAL_KEYS.map(m => ({ ...m, description: '' }))
 
 function VoedingschemasAdmin() {
-  const [members, setMembers]     = useState([])
-  const [selMember, setSelMember] = useState('')
+  const [member, setMember]       = useState(null)
   const [templates, setTemplates] = useState([])
   const [loading, setLoading]     = useState(false)
   const [editing, setEditing]     = useState(null) // 'new' | template object | null
   const [form, setForm]           = useState({ title: '', meals: emptyMeals(), active: true })
   const [saving, setSaving]       = useState(false)
   const [err, setErr]             = useState('')
-
-  useEffect(() => {
-    api.get('/admin/members').then(r => setMembers(r.data.members || [])).catch(() => {})
-  }, [])
 
   const loadTemplates = (memberId) => {
     if (!memberId) { setTemplates([]); return }
@@ -66,7 +141,8 @@ function VoedingschemasAdmin() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { loadTemplates(selMember) }, [selMember])
+  const selectMember = (m) => { setMember(m); setEditing(null); loadTemplates(m.id) }
+  const clearMember  = () => { setMember(null); setTemplates([]); setEditing(null) }
 
   const startNew = () => {
     setEditing('new')
@@ -96,12 +172,12 @@ function VoedingschemasAdmin() {
     setSaving(true); setErr('')
     try {
       if (editing === 'new') {
-        await api.post('/voortgang/admin/templates', { member_id: parseInt(selMember), title: form.title.trim(), meals: form.meals })
+        await api.post('/voortgang/admin/templates', { member_id: member.id, title: form.title.trim(), meals: form.meals })
       } else {
         await api.put(`/voortgang/admin/templates/${editing.id}`, { title: form.title.trim(), meals: form.meals, active: form.active })
       }
       setEditing(null)
-      loadTemplates(selMember)
+      loadTemplates(member.id)
     } catch (e) {
       setErr(e.response?.data?.error || 'Opslaan mislukt.')
     } finally {
@@ -112,28 +188,23 @@ function VoedingschemasAdmin() {
   const deactivate = async (id) => {
     if (!confirm('Dit schema deactiveren?')) return
     await api.delete(`/voortgang/admin/templates/${id}`)
-    loadTemplates(selMember)
+    loadTemplates(member.id)
   }
 
   const activate = async (t) => {
     await api.put(`/voortgang/admin/templates/${t.id}`, { active: true })
-    loadTemplates(selMember)
+    loadTemplates(member.id)
   }
 
   return (
     <div>
-      <div style={{ marginBottom: '1.25rem', maxWidth: 320 }}>
-        <label className="input-label">Lid</label>
-        <select className="input" value={selMember} onChange={e => { setSelMember(e.target.value); setEditing(null) }}>
-          <option value="">— Kies een lid —</option>
-          {members.map(m => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
-        </select>
-      </div>
+      {!member && <MemberSearchPicker onSelect={selectMember} />}
+      {!member && <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem' }}>Zoek en selecteer een lid om schema's te beheren.</p>}
 
-      {!selMember && <p style={{ color: 'var(--text-muted)' }}>Kies eerst een lid om schema's te beheren.</p>}
-
-      {selMember && (
+      {member && (
         <>
+          <SelectedMemberBar member={member} onClear={clearMember} />
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
               {loading ? 'Laden…' : `${templates.length} schema${templates.length !== 1 ? "'s" : ''}`}
@@ -218,7 +289,7 @@ function VoedingschemasAdmin() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// TAB: MEETRESULTATEN (nieuw)
+// TAB: MEETRESULTATEN
 // ════════════════════════════════════════════════════════════════════
 const GOAL_METRICS = [
   { value: 'weight_kg',      label: 'Gewicht (kg)' },
@@ -226,17 +297,46 @@ const GOAL_METRICS = [
   { value: 'muscle_mass_kg', label: 'Spiermassa (kg)' },
 ]
 
+const VALUE_FIELDS = [
+  { key: 'weight_kg',      label: 'Gewicht',      unit: 'kg' },
+  { key: 'bmi',            label: 'BMI',           unit: ''   },
+  { key: 'body_fat_pct',   label: 'Lichaamsvet',  unit: '%'  },
+  { key: 'muscle_mass_kg', label: 'Spiermassa',   unit: 'kg' },
+]
+
 function fmtDate(s) {
   return s ? new Date(s).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 }
 
-function MeetresultatenAdmin() {
-  const [query, setQuery]           = useState('')
-  const [results, setResults]       = useState([])
-  const [searching, setSearching]   = useState(false)
-  const [showResults, setShowResults] = useState(false)
-  const [member, setMember]         = useState(null)
+function DeltaBadge({ value, unit, higherIsBetter }) {
+  if (value == null || value === 0) return null
+  const isUp = value > 0
+  const good = higherIsBetter ? isUp : !isUp
+  const Icon = isUp ? TrendingUp : TrendingDown
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: '0.72rem', fontWeight: 700, color: good ? 'var(--success)' : 'var(--error)' }}>
+      <Icon size={11} />{isUp ? '+' : ''}{value}{unit}
+    </span>
+  )
+}
 
+function ValuesSummary({ values, deltas }) {
+  const present = VALUE_FIELDS.filter(f => values?.[f.key] != null)
+  if (present.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 0.7rem', fontSize: '0.75rem', color: 'var(--text-2, var(--text))' }}>
+      {present.map(f => (
+        <span key={f.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          {f.label}: <strong>{values[f.key]}{f.unit}</strong>
+          <DeltaBadge value={deltas?.[f.key]} unit={f.unit} higherIsBetter={f.key === 'muscle_mass_kg'} />
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function MeetresultatenAdmin() {
+  const [member, setMember]         = useState(null)
   const [reports, setReports]       = useState([])
   const [badges, setBadges]         = useState([])
   const [goal, setGoal]             = useState(null)
@@ -254,22 +354,14 @@ function MeetresultatenAdmin() {
   const [goalValue, setGoalValue]     = useState('')
   const [goalSaving, setGoalSaving]   = useState(false)
 
-  const debounceRef = useRef(null)
-
-  const search = (q) => {
-    setQuery(q)
-    clearTimeout(debounceRef.current)
-    if (!q.trim()) { setResults([]); setShowResults(false); return }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true)
-      try {
-        const r = await api.get(`/admin/members?q=${encodeURIComponent(q.trim())}`)
-        setResults(r.data.members || [])
-        setShowResults(true)
-      } catch (_) { setResults([]) }
-      finally { setSearching(false) }
-    }, 350)
-  }
+  // Review/bevestig-modal voor de AI-uitgelezen cijfers van één rapport
+  const [reviewReport, setReviewReport] = useState(null)
+  const [reviewForm, setReviewForm]     = useState({})
+  const [reviewNotes, setReviewNotes]   = useState('')
+  const [reviewStatus, setReviewStatus] = useState('')
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewSaving, setReviewSaving] = useState(false)
+  const [viewingImage, setViewingImage] = useState(null)
 
   const loadMemberData = async (m) => {
     setLoadingData(true)
@@ -291,14 +383,12 @@ function MeetresultatenAdmin() {
 
   const selectMember = (m) => {
     setMember(m)
-    setQuery(`${m.first_name} ${m.last_name}`)
-    setShowResults(false)
     setPreview(null); setTitle(''); setUploadErr(''); setJustUploaded(false)
     loadMemberData(m)
   }
 
   const clearMember = () => {
-    setMember(null); setQuery(''); setResults([]); setReports([]); setBadges([]); setGoal(null)
+    setMember(null); setReports([]); setBadges([]); setGoal(null)
   }
 
   const handleFile = (e) => {
@@ -316,22 +406,61 @@ function MeetresultatenAdmin() {
     reader.readAsDataURL(file)
   }
 
+  const openReviewForm = (report, values) => {
+    const form = {}
+    VALUE_FIELDS.forEach(f => { form[f.key] = values?.[f.key] ?? '' })
+    setReviewForm(form)
+    setReviewNotes(values?.extraction_notes || '')
+    setReviewStatus(values?.extraction_status || 'pending')
+    setReviewReport(report)
+  }
+
+  const openExistingReview = async (rep) => {
+    setReviewLoading(true)
+    setReviewReport(rep)
+    try {
+      const r = await api.get(`/admin/measurement-reports/${rep.id}/values`)
+      openReviewForm(rep, r.data.values)
+    } catch (_) {
+      alert('Kon meetgegevens niet laden.')
+      setReviewReport(null)
+    } finally {
+      setReviewLoading(false)
+    }
+  }
+
   const doUpload = async () => {
     if (!preview) { setUploadErr('Kies eerst een afbeelding.'); return }
     setUploading(true); setUploadErr('')
     try {
-      await api.post(`/admin/members/${member.id}/measurement-reports`, {
+      const r = await api.post(`/admin/members/${member.id}/measurement-reports`, {
         measured_at: date,
         image_data: preview.dataUrl,
         title: title.trim() || undefined,
       })
       setJustUploaded(true)
-      setTitle(''); setDate(new Date().toISOString().split('T')[0])
-      loadMemberData(member)
+      setTitle(''); setDate(new Date().toISOString().split('T')[0]); setPreview(null)
+      await loadMemberData(member)
+      // Meteen de uitgelezen cijfers laten controleren — dit is de stap die
+      // eerder ontbrak: zonder bevestiging bleven waarden onzichtbaar bij het lid.
+      openReviewForm(r.data.report, r.data.values)
     } catch (e) {
       setUploadErr(e.response?.data?.error || 'Uploaden mislukt.')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const doConfirmValues = async () => {
+    setReviewSaving(true)
+    try {
+      await api.put(`/admin/measurement-reports/${reviewReport.id}/values`, reviewForm)
+      setReviewReport(null)
+      await loadMemberData(member)
+    } catch (e) {
+      alert(e.response?.data?.error || 'Bevestigen mislukt.')
+    } finally {
+      setReviewSaving(false)
     }
   }
 
@@ -362,52 +491,12 @@ function MeetresultatenAdmin() {
 
   return (
     <div>
-      {/* ── Zoekbalk ── */}
-      <div style={{ position: 'relative', maxWidth: 420, marginBottom: member ? '1.25rem' : '0.5rem' }}>
-        <label className="input-label">Lid</label>
-        <div style={{ position: 'relative' }}>
-          <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-          <input
-            className="input"
-            style={{ paddingLeft: 32 }}
-            placeholder="Zoek lid op naam of e-mail…"
-            value={query}
-            onChange={e => search(e.target.value)}
-            onFocus={() => { if (results.length) setShowResults(true) }}
-          />
-        </div>
-
-        {showResults && (
-          <div className="card" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, marginTop: 4, maxHeight: 260, overflowY: 'auto', padding: '0.4rem' }}>
-            {searching && <div style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Zoeken…</div>}
-            {!searching && results.length === 0 && (
-              <div style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Geen leden gevonden.</div>
-            )}
-            {!searching && results.map(m => (
-              <div
-                key={m.id}
-                onClick={() => selectMember(m)}
-                style={{ padding: '0.5rem 0.6rem', borderRadius: 'var(--r-sm)', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-3)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{m.first_name} {m.last_name}</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{m.email}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {!member && <p style={{ color: 'var(--text-muted)' }}>Zoek en selecteer een lid om meetresultaten te beheren.</p>}
+      {!member && <MemberSearchPicker onSelect={selectMember} />}
+      {!member && <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem' }}>Zoek en selecteer een lid om meetresultaten te beheren.</p>}
 
       {member && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem', padding: '0.6rem 0.9rem', background: 'var(--surface-2)', borderRadius: 'var(--r)' }}>
-            <span style={{ fontWeight: 700 }}>Geselecteerd: {member.first_name} {member.last_name}</span>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>({member.email})</span>
-            <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={clearMember}><X size={13} /> Wissel lid</button>
-          </div>
+          <SelectedMemberBar member={member} onClear={clearMember} />
 
           {loadingData ? <p style={{ color: 'var(--text-muted)' }}>Laden…</p> : (
             <>
@@ -432,7 +521,7 @@ function MeetresultatenAdmin() {
                 {uploadErr && <div className="alert alert-error" style={{ fontSize: '0.8rem', marginBottom: '0.75rem' }}>{uploadErr}</div>}
                 {justUploaded && (
                   <div className="alert alert-success" style={{ fontSize: '0.85rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Check size={15} /> Meetresultaat succesvol opgeslagen.
+                    <Check size={15} /> Meetresultaat succesvol opgeslagen. Controleer hieronder de uitgelezen cijfers.
                   </div>
                 )}
 
@@ -452,19 +541,34 @@ function MeetresultatenAdmin() {
               <div className="card" style={{ marginBottom: '1.25rem' }}>
                 <h3 style={{ marginBottom: '0.75rem' }}>Bestaande meetresultaten ({reports.length})</h3>
                 {reports.length === 0 && <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Nog geen meetresultaten voor dit lid.</p>}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.6rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                   {reports.map(rep => (
-                    <div key={rep.id} style={{ background: 'var(--surface-2)', borderRadius: 'var(--r)', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <div key={rep.id} style={{ background: 'var(--surface-2)', borderRadius: 'var(--r)', padding: '0.6rem', display: 'flex', gap: '0.7rem', alignItems: 'flex-start' }}>
                       <AuthedImage
                         src={`/admin/measurement-reports/${rep.id}/image`}
                         alt={rep.title || fmtDate(rep.measured_at)}
-                        style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 'var(--r-sm)' }}
+                        style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 'var(--r-sm)', cursor: 'pointer', flexShrink: 0 }}
+                        onClick={() => setViewingImage(rep)}
                       />
-                      <div style={{ fontSize: '0.78rem', fontWeight: 600, textAlign: 'center' }}>{rep.title || fmtDate(rep.measured_at)}</div>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: 'center' }}>{fmtDate(rep.measured_at)}</div>
-                      <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--error)', border: '1px solid rgba(239,68,68,0.25)' }} onClick={() => doDelete(rep.id)}>
-                        <Trash2 size={11} /> Verwijderen
-                      </button>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{rep.title || 'Meetresultaat'}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>{fmtDate(rep.measured_at)}</div>
+                        {rep.extraction_status === 'confirmed' ? (
+                          <ValuesSummary values={rep} deltas={rep.deltas} />
+                        ) : (
+                          <button className="btn btn-outline btn-sm" style={{ fontSize: '0.7rem', padding: '3px 7px' }} onClick={() => openExistingReview(rep)}>
+                            <Camera size={10} /> {rep.extraction_status === 'failed' ? 'Handmatig invullen' : 'Controleer meetgegevens'}
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flexShrink: 0 }}>
+                        {rep.extraction_status === 'confirmed' && (
+                          <button className="btn btn-outline btn-sm" style={{ fontSize: '0.7rem', padding: '3px 7px' }} onClick={() => openExistingReview(rep)}><Edit2 size={10} /></button>
+                        )}
+                        <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--error)', border: '1px solid rgba(239,68,68,0.25)', fontSize: '0.7rem', padding: '3px 7px' }} onClick={() => doDelete(rep.id)}>
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -517,6 +621,67 @@ function MeetresultatenAdmin() {
             </>
           )}
         </>
+      )}
+
+      {/* ── Volledige afbeelding ── */}
+      {viewingImage && (
+        <div className="modal-overlay" onClick={() => setViewingImage(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: '90vw', width: 'auto' }}>
+            <div className="modal-header">
+              <h3>{viewingImage.title || fmtDate(viewingImage.measured_at)}</h3>
+              <button className="btn-icon" onClick={() => setViewingImage(null)}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '1rem', display: 'flex', justifyContent: 'center' }}>
+              <AuthedImage
+                src={`/admin/measurement-reports/${viewingImage.id}/image`}
+                alt={viewingImage.title || fmtDate(viewingImage.measured_at)}
+                style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain', borderRadius: 'var(--r)' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Review/bevestig meetgegevens ── */}
+      {reviewReport && (
+        <div className="modal-overlay" onClick={() => !reviewSaving && setReviewReport(null)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, width: '100%' }}>
+            <div className="modal-header">
+              <h3>Controleer meetgegevens</h3>
+              <button className="btn-icon" onClick={() => setReviewReport(null)}><X size={18} /></button>
+            </div>
+            {reviewLoading ? (
+              <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>Laden…</div>
+            ) : (
+              <div style={{ padding: '1rem 1.25rem' }}>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                  {reviewStatus === 'failed'
+                    ? 'Automatische uitlezing is niet gelukt. Vul de waarden handmatig in.'
+                    : 'Automatisch uitgelezen uit de afbeelding — controleer elke waarde voordat je bevestigt.'}
+                  {reviewNotes && <span style={{ display: 'block', marginTop: 4, fontStyle: 'italic' }}>{reviewNotes}</span>}
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                  {VALUE_FIELDS.map(f => (
+                    <div key={f.key}>
+                      <label className="input-label">{f.label}{f.unit && ` (${f.unit})`}</label>
+                      <input
+                        className="input" type="text" inputMode="decimal" placeholder="—"
+                        value={reviewForm[f.key] ?? ''}
+                        onChange={e => setReviewForm(v => ({ ...v, [f.key]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem' }}>
+                  <button className="btn btn-primary btn-sm" onClick={doConfirmValues} disabled={reviewSaving}>
+                    {reviewSaving ? 'Bevestigen…' : <><Check size={13} /> Bevestigen</>}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setReviewReport(null)} disabled={reviewSaving}>Later</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

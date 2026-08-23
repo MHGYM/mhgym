@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [simpleNutrition, setSimpleNutrition] = useState(null)
   const [workoutLogs,     setWorkoutLogs]     = useState([])
   const [programDays,     setProgramDays]     = useState([])
+  const [badges,          setBadges]          = useState([])
   const [loading,         setLoading]         = useState(true)
 
   // ── Fase 1: kerngegevens laden ────────────────────────────────────────────
@@ -48,8 +49,9 @@ export default function DashboardPage() {
           api.get('/pt/bookings/mine'),
           api.get('/training/access'),
           api.get('/voortgang/nutrition/today'),
+          api.get('/voortgang/badges/mine'),
         ])
-        const [, bookingsR, voortgangR, ptBalR, ptBookR, accessR, simpleNutR] = results
+        const [, bookingsR, voortgangR, ptBalR, ptBookR, accessR, simpleNutR, badgesR] = results
 
         if (bookingsR.status === 'fulfilled')  setBookings(bookingsR.value.data.bookings || [])
         if (voortgangR.status === 'fulfilled')  setVoortgang(voortgangR.value.data)
@@ -57,6 +59,7 @@ export default function DashboardPage() {
         if (ptBookR.status === 'fulfilled')     setPtBookings(ptBookR.value.data.bookings || [])
         if (accessR.status === 'fulfilled')     setTrainingAccess(accessR.value.data)
         if (simpleNutR.status === 'fulfilled')  setSimpleNutrition(simpleNutR.value.data)
+        if (badgesR.status === 'fulfilled')     setBadges(badgesR.value.data.badges || [])
 
         // Trainingsplatform-content alleen ophalen bij bevestigde toegang (voorkomt onnodige 403's)
         if (accessR.status === 'fulfilled' && accessR.value.data.has_access) {
@@ -485,16 +488,35 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* ── 7. Badges & Mijlpalen (placeholder, geen echte data) ────────────── */}
+      {/* ── 7. Badges & Mijlpalen ────────────────────────────────────────────── */}
       <div className="dash-section">
         <div className="section-header">
           <h2><Award size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Badges &amp; Mijlpalen</h2>
+          <Link to="/dashboard/mijn-voortgang" style={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none' }}>
+            Alles bekijken <ChevronRight size={13} style={{ verticalAlign: 'middle' }} />
+          </Link>
         </div>
-        <div className="coming-soon-card">
-          <div className="cs-icon">🏆</div>
-          <h4>Binnenkort beschikbaar</h4>
-          <p>Mijlpalen, challenges en badges voor consistentie en trainingsresultaten komen in een volgende update.</p>
-        </div>
+        {badges.filter(b => b.earned).length === 0 ? (
+          <div className="coming-soon-card">
+            <div className="cs-icon">🏆</div>
+            <h4>Nog geen badges behaald</h4>
+            <p>Zodra MH Gym je eerste meetresultaat uploadt, verdien je automatisch je eerste badge.</p>
+          </div>
+        ) : (
+          <div className="premium-grid">
+            {badges.map((b) => (
+              <div key={b.key} className={`premium-feature-card ${b.earned ? 'unlocked' : 'locked'}`} title={b.description}>
+                <span className="premium-feature-icon">{b.icon}</span>
+                <span className="premium-feature-title">{b.label}</span>
+                <span className={`premium-feature-status ${b.earned ? 'is-unlocked' : 'is-locked'}`}>
+                  {b.earned
+                    ? <><CheckCircle2 size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Behaald</>
+                    : <><Lock size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Nog niet behaald</>}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── 8. Premium ───────────────────────────────────────────────────────── */}

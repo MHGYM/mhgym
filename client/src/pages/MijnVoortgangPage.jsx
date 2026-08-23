@@ -393,6 +393,39 @@ function fmtFullDate(s) {
   return s ? new Date(s).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'
 }
 
+const VALUE_FIELDS = [
+  { key: 'weight_kg',      label: 'Gewicht',      unit: 'kg' },
+  { key: 'bmi',            label: 'BMI',           unit: ''   },
+  { key: 'body_fat_pct',   label: 'Lichaamsvet',  unit: '%'  },
+  { key: 'muscle_mass_kg', label: 'Spiermassa',   unit: 'kg' },
+]
+
+function DeltaBadge({ value, unit, higherIsBetter }) {
+  if (value == null || value === 0) return null
+  const isUp = value > 0
+  const good = higherIsBetter ? isUp : !isUp
+  return (
+    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: good ? 'var(--success)' : 'var(--error)', marginLeft: 4 }}>
+      ({isUp ? '+' : ''}{value}{unit})
+    </span>
+  )
+}
+
+function ReportValues({ rep }) {
+  const present = VALUE_FIELDS.filter(f => rep[f.key] != null)
+  if (present.length === 0) return null
+  return (
+    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4, display: 'flex', flexDirection: 'column', gap: 1 }}>
+      {present.map(f => (
+        <span key={f.key}>
+          {f.label}: <strong style={{ color: 'var(--text)' }}>{rep[f.key]}{f.unit}</strong>
+          <DeltaBadge value={rep.deltas?.[f.key]} unit={f.unit} higherIsBetter={f.key === 'muscle_mass_kg'} />
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function MeetresultatenTab() {
   const [reports, setReports]   = useState(undefined) // undefined = laden
   const [badges, setBadges]     = useState([])
@@ -452,6 +485,7 @@ function MeetresultatenTab() {
               />
               <div style={{ fontSize: '0.8rem', fontWeight: 600, marginTop: '0.4rem' }}>{rep.title || 'Meetresultaat'}</div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{fmtFullDate(rep.measured_at)}</div>
+              <ReportValues rep={rep} />
             </div>
           ))}
         </div>
@@ -465,12 +499,13 @@ function MeetresultatenTab() {
               <h3>{fullscreen.title || 'Meetresultaat'} — {fmtFullDate(fullscreen.measured_at)}</h3>
               <button className="btn-icon" onClick={() => setFullscreen(null)}><X size={18} /></button>
             </div>
-            <div style={{ padding: '1rem', display: 'flex', justifyContent: 'center' }}>
+            <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
               <AuthedImage
                 src={`/voortgang/measurement-reports/mine/${fullscreen.id}/image`}
                 alt={fullscreen.title || fmtFullDate(fullscreen.measured_at)}
-                style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain', borderRadius: 'var(--r)' }}
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 'var(--r)' }}
               />
+              <ReportValues rep={fullscreen} />
             </div>
           </div>
         </div>
