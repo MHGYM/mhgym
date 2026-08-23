@@ -73,7 +73,7 @@ const chat = async (req, res) => {
 
   try {
     const response = await getClient().messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: history,
