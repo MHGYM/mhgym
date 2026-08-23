@@ -421,6 +421,68 @@ async function ensureSchema() {
     )
   `);
 
+  // ── Lichaamsmeting-rapporten (admin-upload, per lid) ──────────────────────────
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS measurement_reports (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      measured_at  TEXT    NOT NULL,
+      filename     TEXT    NOT NULL,
+      mime_type    TEXT    NOT NULL,
+      uploaded_by  INTEGER REFERENCES users(id),
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_measurement_reports_user ON measurement_reports(user_id, measured_at DESC)`);
+
+  // ── Uitgelezen/bevestigde meetwaarden per rapport (1-op-1 met measurement_reports) ──
+  // extraction_status: pending | extracted | failed | confirmed
+  // Elke waarde is NULL totdat hij betrouwbaar is herkend — er wordt nooit een
+  // waarde verzonnen. Losse, benoemde kolommen per metriek, zelfde patroon als
+  // het bestaande body_measurements (geen JSON-blob), zodat dit consistent
+  // blijft met de rest van de codebase.
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS measurement_report_values (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_id                   INTEGER NOT NULL UNIQUE REFERENCES measurement_reports(id) ON DELETE CASCADE,
+      extraction_status           TEXT    NOT NULL DEFAULT 'pending',
+      extraction_notes            TEXT,
+      weight_kg                   REAL,
+      bmi                         REAL,
+      body_fat_pct                REAL,
+      fat_mass_kg                 REAL,
+      fat_free_weight_kg          REAL,
+      muscle_mass_kg              REAL,
+      muscle_rate_pct             REAL,
+      skeletal_muscle_kg          REAL,
+      bone_mass_kg                REAL,
+      protein_mass_kg             REAL,
+      protein_pct                 REAL,
+      water_weight_kg             REAL,
+      body_water_pct              REAL,
+      subcutaneous_fat_pct        REAL,
+      visceral_fat_rating         REAL,
+      bmr_kcal                    REAL,
+      body_age                    INTEGER,
+      whr                         REAL,
+      ideal_weight_kg             REAL,
+      segment_fat_left_arm_pct    REAL,
+      segment_fat_right_arm_pct   REAL,
+      segment_fat_trunk_pct       REAL,
+      segment_fat_left_leg_pct    REAL,
+      segment_fat_right_leg_pct   REAL,
+      segment_muscle_left_arm_pct  REAL,
+      segment_muscle_right_arm_pct REAL,
+      segment_muscle_trunk_pct     REAL,
+      segment_muscle_left_leg_pct  REAL,
+      segment_muscle_right_leg_pct REAL,
+      confirmed_by                INTEGER REFERENCES users(id),
+      confirmed_at                TEXT,
+      created_at                  TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at                  TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
   // ── ALTER TABLE safety patches (for existing DBs missing columns) ─────────────
   const patches = [
     // users

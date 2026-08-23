@@ -5,7 +5,7 @@ import {
   Search, Plus, Check, X, Euro, Clock, Edit2, Trash2,
   Bell, PauseCircle, PlayCircle, Pin, Crown, Link, ChevronLeft, RefreshCw,
   TrendingUp, Banknote, FileText, ChevronDown, ChevronUp,
-  MessageCircle, Send, ArrowLeft, Ticket
+  MessageCircle, Send, ArrowLeft, Ticket, Camera, Eye, Upload
 } from 'lucide-react'
 import api from '../api'
 import { TrainingCtx } from '../context/TrainingContext'
@@ -19,6 +19,42 @@ import VoortgangAdmin from './admin/VoortgangAdmin'
 const fmtDate  = (s) => s ? new Date(s).toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : '—'
 const fmtMoney = (n) => n != null ? `€${Number(n).toFixed(2)}` : '—'
 const fmtDT    = (s) => s ? new Date(s).toLocaleString('nl-NL',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—'
+
+// ── Meetrapport-velden (uitsluitend labels/eenheden — waarden komen altijd uit de API) ──
+const MEASUREMENT_FIELDS = [
+  { key: 'weight_kg',           label: 'Gewicht',                  unit: 'kg'   },
+  { key: 'bmi',                 label: 'BMI',                      unit: ''     },
+  { key: 'body_fat_pct',        label: 'Lichaamsvet',              unit: '%'    },
+  { key: 'fat_mass_kg',         label: 'Vetmassa',                 unit: 'kg'   },
+  { key: 'fat_free_weight_kg',  label: 'Vetvrij lichaamsgewicht',  unit: 'kg'   },
+  { key: 'muscle_mass_kg',      label: 'Spiermassa',               unit: 'kg'   },
+  { key: 'muscle_rate_pct',     label: 'Spiersnelheid',            unit: '%'    },
+  { key: 'skeletal_muscle_kg',  label: 'Skeletspier',              unit: 'kg'   },
+  { key: 'bone_mass_kg',        label: 'Botmassa',                 unit: 'kg'   },
+  { key: 'protein_mass_kg',     label: 'Eiwitmassa',               unit: 'kg'   },
+  { key: 'protein_pct',         label: 'Eiwit',                    unit: '%'    },
+  { key: 'water_weight_kg',     label: 'Watergewicht',             unit: 'kg'   },
+  { key: 'body_water_pct',      label: 'Lichaamswater',            unit: '%'    },
+  { key: 'subcutaneous_fat_pct',label: 'Onderhuids vet',           unit: '%'    },
+  { key: 'visceral_fat_rating', label: 'Visceraal vet',            unit: ''     },
+  { key: 'bmr_kcal',            label: 'BMR',                      unit: 'kcal' },
+  { key: 'body_age',            label: 'Lichaamsleeftijd',         unit: 'jaar' },
+  { key: 'whr',                 label: 'WHR',                      unit: ''     },
+  { key: 'ideal_weight_kg',     label: 'Ideaal lichaamsgewicht',   unit: 'kg'   },
+]
+const SEGMENT_FIELDS = [
+  { key: 'segment_fat_left_arm_pct',     label: 'Vet — linkerarm',    unit: '%' },
+  { key: 'segment_fat_right_arm_pct',    label: 'Vet — rechterarm',   unit: '%' },
+  { key: 'segment_fat_trunk_pct',        label: 'Vet — romp',         unit: '%' },
+  { key: 'segment_fat_left_leg_pct',     label: 'Vet — linkerbeen',   unit: '%' },
+  { key: 'segment_fat_right_leg_pct',    label: 'Vet — rechterbeen',  unit: '%' },
+  { key: 'segment_muscle_left_arm_pct',  label: 'Spier — linkerarm',  unit: '%' },
+  { key: 'segment_muscle_right_arm_pct', label: 'Spier — rechterarm', unit: '%' },
+  { key: 'segment_muscle_trunk_pct',     label: 'Spier — romp',       unit: '%' },
+  { key: 'segment_muscle_left_leg_pct',  label: 'Spier — linkerbeen', unit: '%' },
+  { key: 'segment_muscle_right_leg_pct', label: 'Spier — rechterbeen',unit: '%' },
+]
+const ALL_MEASUREMENT_KEYS = [...MEASUREMENT_FIELDS, ...SEGMENT_FIELDS].map(f => f.key)
 
 // ── Membership types ──────────────────────────────────────────────────────
 const MEMBERSHIP_TYPES = [
@@ -435,6 +471,25 @@ function DashboardSection() {
 // ════════════════════════════════════════════════════════════════════
 // LEDEN
 // ════════════════════════════════════════════════════════════════════
+// Haalt een JWT-beveiligde afbeelding op als blob en toont die als <img> —
+// nodig omdat een gewoon <img src> geen Authorization-header kan meesturen.
+function AuthedImage({ src, alt, style, onClick }) {
+  const [url, setUrl] = useState(null)
+  useEffect(() => {
+    let objectUrl
+    let cancelled = false
+    api.get(src, { responseType: 'blob' }).then(r => {
+      if (cancelled) return
+      objectUrl = URL.createObjectURL(r.data)
+      setUrl(objectUrl)
+    }).catch(() => {})
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [src])
+
+  if (!url) return <div style={{ ...style, background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Camera size={16} style={{ color: 'var(--text-muted)' }} /></div>
+  return <img src={url} alt={alt} style={style} onClick={onClick} />
+}
+
 function LedenSection() {
   const [members,       setMembers]       = useState([])
   const [search,        setSearch]        = useState('')
@@ -469,6 +524,21 @@ function LedenSection() {
   const [showRkAssign,        setShowRkAssign]        = useState(false)
   const [rkTypes,             setRkTypes]             = useState([])
   const [rkForm,              setRkForm]              = useState({type_id:'',betaalmethode:'contant',betaald:false,betaaldatum:new Date().toISOString().split('T')[0]})
+  const [measurementReports, setMeasurementReports] = useState([])
+  const [showMeasureAdd,     setShowMeasureAdd]     = useState(false)
+  const [measureDate,        setMeasureDate]        = useState(new Date().toISOString().split('T')[0])
+  const [measurePreview,     setMeasurePreview]     = useState(null)  // { dataUrl, mime }
+  const [measureError,       setMeasureError]       = useState('')
+  const [measureSaving,      setMeasureSaving]      = useState(false)
+  const [viewingReport,      setViewingReport]      = useState(null)
+  const [reviewReport,       setReviewReport]       = useState(null)  // rapport waarvan de waarden gecontroleerd worden
+  const [reviewForm,         setReviewForm]         = useState({})
+  const [reviewSaving,       setReviewSaving]       = useState(false)
+  const [reviewNotes,        setReviewNotes]        = useState('')
+  const [reviewStatus,       setReviewStatus]       = useState('')
+  const [reviewLoading,      setReviewLoading]      = useState(false)
+  const [showSegments,       setShowSegments]       = useState(false)
+  const [justUploaded,       setJustUploaded]       = useState(false)
   const timerRef = useRef(null)
 
   useEffect(() => { loadMembers() }, [])
@@ -488,6 +558,7 @@ function LedenSection() {
 
   const openMember = async id => {
     setSelected(id); setLoadingDetail(true); setDetail(null); setShowRkAssign(false); setMemberRittenkaarten([])
+    setShowMeasureAdd(false); setMeasurePreview(null); setMeasureError(''); setMeasurementReports([])
     const r = await api.get(`/admin/members/${id}`)
     setDetail(r.data)
     setNotes(r.data.member.admin_notes || '')
@@ -495,6 +566,94 @@ function LedenSection() {
     setLoadingDetail(false)
     api.get(`/admin/members/${id}/rittenkaarten`).then(rk => setMemberRittenkaarten(rk.data.kaarten)).catch(()=>{})
     api.get('/admin/rittenkaart-types').then(rt => setRkTypes(rt.data.types.filter(t => t.actief))).catch(()=>{})
+    loadMeasurementReports(id)
+  }
+
+  const loadMeasurementReports = async id => {
+    try {
+      const r = await api.get(`/admin/members/${id}/measurement-reports`)
+      setMeasurementReports(r.data.reports)
+    } catch (_) { setMeasurementReports([]) }
+  }
+
+  const handleMeasureFile = e => {
+    const file = e.target.files?.[0]
+    setMeasureError('')
+    if (!file) { setMeasurePreview(null); return }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setMeasureError('Alleen JPG, PNG of WEBP toegestaan.'); setMeasurePreview(null); return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setMeasureError('Bestand is te groot (max. 8MB).'); setMeasurePreview(null); return
+    }
+    const reader = new FileReader()
+    reader.onload = ev => setMeasurePreview({ dataUrl: ev.target.result, mime: file.type })
+    reader.readAsDataURL(file)
+  }
+
+  const doSaveMeasurement = async () => {
+    if (!measurePreview) { setMeasureError('Kies eerst een afbeelding.'); return }
+    setMeasureSaving(true); setMeasureError('')
+    try {
+      const r = await api.post(`/admin/members/${selected}/measurement-reports`, {
+        measured_at: measureDate,
+        image_data: measurePreview.dataUrl,
+      })
+      setShowMeasureAdd(false); setMeasurePreview(null)
+      loadMeasurementReports(selected)
+      setJustUploaded(true)
+      openReview(r.data.report, r.data.values)
+    } catch (e) {
+      setMeasureError(e.response?.data?.error || 'Opslaan mislukt.')
+    } finally {
+      setMeasureSaving(false)
+    }
+  }
+
+  const doDeleteMeasurement = async reportId => {
+    if (!confirm('Dit meetrapport definitief verwijderen?')) return
+    try {
+      await api.delete(`/admin/measurement-reports/${reportId}`)
+      loadMeasurementReports(selected)
+    } catch (e) { alert(e.response?.data?.error || 'Verwijderen mislukt.') }
+  }
+
+  const openReview = (report, values) => {
+    const form = {}
+    ALL_MEASUREMENT_KEYS.forEach(k => { form[k] = values?.[k] ?? '' })
+    setReviewForm(form)
+    setReviewNotes(values?.extraction_notes || '')
+    setReviewStatus(values?.extraction_status || 'pending')
+    setShowSegments(false)
+    setReviewReport(report)
+  }
+
+  const openExistingReview = async rep => {
+    setJustUploaded(false)
+    setReviewLoading(true)
+    setReviewReport(rep) // toont meteen de modal met een laadstatus
+    try {
+      const r = await api.get(`/admin/measurement-reports/${rep.id}/values`)
+      openReview(rep, r.data.values)
+    } catch (e) {
+      alert('Kon meetgegevens niet laden.')
+      setReviewReport(null)
+    } finally {
+      setReviewLoading(false)
+    }
+  }
+
+  const doConfirmValues = async () => {
+    setReviewSaving(true)
+    try {
+      await api.put(`/admin/measurement-reports/${reviewReport.id}/values`, reviewForm)
+      setReviewReport(null)
+      loadMeasurementReports(selected)
+    } catch (e) {
+      alert(e.response?.data?.error || 'Opslaan mislukt.')
+    } finally {
+      setReviewSaving(false)
+    }
   }
 
   const selectedMtype = MEMBERSHIP_TYPES.find(t => t.key === assignType)
@@ -1143,8 +1302,191 @@ function LedenSection() {
                   </div>
                 </div>
               )}
+
+              {/* Lichaamsmetingen */}
+              <div className="card">
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'0.75rem'}}>
+                  <h3 style={{margin:0}}>Lichaamsmetingen</h3>
+                  <button className="btn btn-outline btn-sm" onClick={()=>{ setShowMeasureAdd(s=>!s); setMeasurePreview(null); setMeasureError('') }}>
+                    {showMeasureAdd?<><X size={13}/> Annuleren</>:<><Camera size={13}/> Nieuwe meting toevoegen</>}
+                  </button>
+                </div>
+
+                {showMeasureAdd && (
+                  <div style={{padding:'0.75rem',background:'var(--surface-3)',borderRadius:'var(--r)',marginBottom:'0.75rem',display:'flex',flexDirection:'column',gap:'0.6rem'}}>
+                    <div>
+                      <label className="input-label">Datum meting</label>
+                      <input className="input" type="date" value={measureDate} onChange={e=>setMeasureDate(e.target.value)} max={new Date().toISOString().split('T')[0]}/>
+                    </div>
+                    <div>
+                      <label className="input-label">Meetrapport-afbeelding (JPG, PNG of WEBP, max. 8MB)</label>
+                      <input className="input" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleMeasureFile}/>
+                    </div>
+                    {measureError && <div className="alert alert-error" style={{fontSize:'0.8rem'}}>{measureError}</div>}
+                    {measurePreview && (
+                      <div>
+                        <div style={{fontSize:'0.75rem',color:'var(--text-muted)',marginBottom:'0.3rem'}}>Voorbeeld:</div>
+                        <img src={measurePreview.dataUrl} alt="Voorbeeld" style={{maxWidth:'100%',maxHeight:220,borderRadius:'var(--r)',border:'1px solid var(--border)',display:'block'}}/>
+                      </div>
+                    )}
+                    <div style={{display:'flex',gap:'0.5rem'}}>
+                      <button className="btn btn-primary btn-sm" onClick={doSaveMeasurement} disabled={measureSaving || !measurePreview}>
+                        {measureSaving ? 'Gegevens worden uitgelezen…' : <><Check size={13}/> Meting opslaan</>}
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={()=>{ setShowMeasureAdd(false); setMeasurePreview(null) }}>Annuleren</button>
+                    </div>
+                  </div>
+                )}
+
+                {measurementReports.length===0 && !showMeasureAdd && <p style={{color:'var(--text-muted)',fontSize:'0.875rem'}}>Nog geen meetrapporten</p>}
+
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))',gap:'0.6rem'}}>
+                  {measurementReports.map(rep => (
+                    <div key={rep.id} style={{background:'var(--surface-2)',borderRadius:'var(--r)',padding:'0.5rem',display:'flex',flexDirection:'column',gap:'0.4rem'}}>
+                      <AuthedImage
+                        src={`/admin/measurement-reports/${rep.id}/image`}
+                        alt={`Meetrapport ${fmtDate(rep.measured_at)}`}
+                        style={{width:'100%',height:110,objectFit:'cover',borderRadius:'var(--r-sm)',cursor:'pointer'}}
+                        onClick={()=>setViewingReport(rep)}
+                      />
+                      <div style={{fontSize:'0.78rem',fontWeight:600,textAlign:'center'}}>{fmtDate(rep.measured_at)}</div>
+
+                      {rep.extraction_status === 'confirmed' ? (
+                        <div style={{fontSize:'0.68rem',color:'var(--text-muted)',textAlign:'center'}}>
+                          {rep.weight_kg!=null && <>{rep.weight_kg}kg</>}
+                          {rep.bmi!=null && <> · BMI {rep.bmi}</>}
+                          {rep.body_fat_pct!=null && <> · {rep.body_fat_pct}%</>}
+                          {rep.weight_kg==null && rep.bmi==null && rep.body_fat_pct==null && <>Bevestigd</>}
+                        </div>
+                      ) : (
+                        <button className="btn btn-outline btn-sm" style={{fontSize:'0.68rem',padding:'3px 6px'}} onClick={()=>openExistingReview(rep)}>
+                          <Camera size={10}/> {rep.extraction_status==='failed' ? 'Handmatig invullen' : 'Controleer meetgegevens'}
+                        </button>
+                      )}
+
+                      <div style={{display:'flex',gap:'0.3rem'}}>
+                        <button className="btn btn-outline btn-sm" style={{flex:1,fontSize:'0.72rem',padding:'4px 6px'}} onClick={()=>setViewingReport(rep)}>
+                          <Eye size={11}/> Bekijk
+                        </button>
+                        {rep.extraction_status === 'confirmed' && (
+                          <button className="btn btn-sm" style={{padding:'4px 6px',fontSize:'0.68rem'}} title="Metingen bewerken" onClick={()=>openExistingReview(rep)}>
+                            <Edit2 size={11}/>
+                          </button>
+                        )}
+                        <button className="btn btn-sm" style={{padding:'4px 6px',background:'rgba(239,68,68,0.12)',color:'var(--error)',border:'1px solid rgba(239,68,68,0.25)'}} title="Verwijderen" onClick={()=>doDeleteMeasurement(rep.id)}>
+                          <Trash2 size={11}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </>
           })()}
+        </div>
+      )}
+
+      {viewingReport && (
+        <div className="modal-overlay" onClick={()=>setViewingReport(null)}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:'90vw',width:'auto'}}>
+            <div className="modal-header">
+              <h3>Meetrapport — {fmtDate(viewingReport.measured_at)}</h3>
+              <button className="btn-icon" onClick={()=>setViewingReport(null)}><X size={18}/></button>
+            </div>
+            <div style={{padding:'1rem',display:'flex',justifyContent:'center'}}>
+              <AuthedImage
+                src={`/admin/measurement-reports/${viewingReport.id}/image`}
+                alt={`Meetrapport ${fmtDate(viewingReport.measured_at)}`}
+                style={{maxWidth:'100%',maxHeight:'80vh',objectFit:'contain',borderRadius:'var(--r)'}}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reviewReport && (
+        <div className="modal-overlay" onClick={()=>!reviewSaving && setReviewReport(null)}>
+          <div className="modal-box" onClick={e=>e.stopPropagation()} style={{maxWidth:560,width:'100%',maxHeight:'88vh',display:'flex',flexDirection:'column'}}>
+            <div className="modal-header">
+              <h3>Controleer meetgegevens</h3>
+              <button className="btn-icon" onClick={()=>setReviewReport(null)}><X size={18}/></button>
+            </div>
+
+            {justUploaded && (
+              <div className="alert alert-success" style={{margin:'0 1.25rem',marginTop:'0.75rem',display:'flex',alignItems:'center',gap:'0.5rem',fontSize:'0.85rem'}}>
+                <Check size={15}/> Meetrapport succesvol opgeslagen — het is nu zichtbaar voor dit lid.
+              </div>
+            )}
+
+            {reviewLoading ? (
+              <div style={{padding:'2.5rem',textAlign:'center',color:'var(--text-muted)'}}>Laden…</div>
+            ) : (
+              <div style={{padding:'1rem 1.25rem',overflowY:'auto',flex:1}}>
+                <div style={{display:'flex',gap:'0.75rem',marginBottom:'1rem'}}>
+                  <AuthedImage
+                    src={`/admin/measurement-reports/${reviewReport.id}/image`}
+                    alt="Meetrapport"
+                    style={{width:80,height:80,objectFit:'cover',borderRadius:'var(--r)',flexShrink:0,cursor:'pointer'}}
+                    onClick={()=>setViewingReport(reviewReport)}
+                  />
+                  <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>
+                    {reviewStatus === 'confirmed' ? (
+                      <>Eerder bevestigde metingen — pas aan indien nodig.</>
+                    ) : reviewStatus === 'failed' ? (
+                      <>Automatische uitlezing is niet gelukt. Vul de waarden handmatig in.</>
+                    ) : (
+                      <><Camera size={12} style={{verticalAlign:'middle'}}/> Automatisch uitgelezen uit de afbeelding — controleer elke waarde voordat je bevestigt.</>
+                    )}
+                    {reviewNotes && <div style={{marginTop:4,fontStyle:'italic'}}>{reviewNotes}</div>}
+                  </div>
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
+                  {MEASUREMENT_FIELDS.map(f => (
+                    <div key={f.key}>
+                      <label className="input-label">{f.label}{f.unit && ` (${f.unit})`}</label>
+                      <input
+                        className="input" type="text" inputMode="decimal" placeholder="—"
+                        value={reviewForm[f.key] ?? ''}
+                        onChange={e=>setReviewForm(v=>({...v,[f.key]:e.target.value}))}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{marginTop:'1rem',marginBottom:showSegments?'0.6rem':0}}
+                  onClick={()=>setShowSegments(s=>!s)}
+                >
+                  {showSegments ? <ChevronUp size={13}/> : <ChevronDown size={13}/>} Segmentale analyse
+                </button>
+                {showSegments && (
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.6rem'}}>
+                    {SEGMENT_FIELDS.map(f => (
+                      <div key={f.key}>
+                        <label className="input-label">{f.label}{f.unit && ` (${f.unit})`}</label>
+                        <input
+                          className="input" type="text" inputMode="decimal" placeholder="—"
+                          value={reviewForm[f.key] ?? ''}
+                          onChange={e=>setReviewForm(v=>({...v,[f.key]:e.target.value}))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!reviewLoading && (
+              <div style={{display:'flex',gap:'0.5rem',padding:'1rem 1.25rem',borderTop:'1px solid var(--border)'}}>
+                <button className="btn btn-ghost btn-full" onClick={()=>setReviewReport(null)} disabled={reviewSaving}>Annuleren</button>
+                <button className="btn btn-primary btn-full" onClick={doConfirmValues} disabled={reviewSaving}>
+                  {reviewSaving ? 'Bezig…' : <><Check size={15}/> Meting bevestigen</>}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

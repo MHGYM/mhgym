@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const ctrl = require('../controllers/voortgangController');
+const mrCtrl = require('../controllers/measurementReportController');
 
 // ── Leden ────────────────────────────────────────────────────────────────────
 router.get('/overview',        authenticate, ctrl.getOverview);
@@ -8,6 +9,11 @@ router.get('/attendance',      authenticate, ctrl.getAttendanceHistory);
 router.get('/nutrition/today', authenticate, ctrl.getNutritionToday);
 router.get('/nutrition/week',  authenticate, ctrl.getNutritionWeek);
 router.post('/nutrition/log',  authenticate, ctrl.logNutritionMeal);
+
+// Meetrapport — uitsluitend het eigen, meest recente rapport (zie
+// measurementReportController.js voor de beveiligingsopzet).
+router.get('/measurement-report/mine',       authenticate, mrCtrl.myReport);
+router.get('/measurement-report/mine/image', authenticate, mrCtrl.myReportImage);
 
 // ── Coach / admin ────────────────────────────────────────────────────────────
 router.get('/admin/templates/:memberId', authenticate, requireAdmin, ctrl.listMemberTemplates);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   TrendingUp, Calendar, Utensils, Flame, Clock, Ticket, CreditCard,
-  CheckCircle2, Circle, AlertTriangle, User, MapPin, Dumbbell,
+  CheckCircle2, Circle, AlertTriangle, User, MapPin, Dumbbell, Ruler,
 } from 'lucide-react'
 import api from '../api'
 
@@ -9,6 +9,7 @@ const TABS = [
   { key: 'voortgang',    label: 'Voortgang',    Icon: TrendingUp },
   { key: 'aanwezigheid', label: 'Aanwezigheid', Icon: Calendar   },
   { key: 'voeding',      label: 'Voeding',       Icon: Utensils   },
+  { key: 'meetrapport',  label: 'Meetrapport',  Icon: Ruler      },
 ]
 
 function fmtDate(s) {
@@ -57,6 +58,7 @@ export default function MijnVoortgangPage() {
       {tab === 'voortgang'    && <VoortgangTab overview={overview} />}
       {tab === 'aanwezigheid' && <AanwezigheidTab />}
       {tab === 'voeding'      && <VoedingTab />}
+      {tab === 'meetrapport'  && <MeetrapportTab />}
     </div>
   )
 }
@@ -379,6 +381,55 @@ function VoedingTab() {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// TAB: MEETRAPPORT
+// ════════════════════════════════════════════════════════════════════
+function MeetrapportTab() {
+  const [report, setReport] = useState(undefined) // undefined = laden, null = geen rapport
+  const [imgUrl, setImgUrl] = useState(null)
+
+  useEffect(() => {
+    let objectUrl
+    let cancelled = false
+
+    api.get('/voortgang/measurement-report/mine').then(r => {
+      if (cancelled) return
+      setReport(r.data.report)
+      if (!r.data.report) return
+      return api.get('/voortgang/measurement-report/mine/image', { responseType: 'blob' }).then(res => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(res.data)
+        setImgUrl(objectUrl)
+      })
+    }).catch(() => { if (!cancelled) setReport(null) })
+
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [])
+
+  if (report === undefined) return <p style={{ color: 'var(--text-muted)' }}>Laden…</p>
+
+  if (!report) {
+    return (
+      <div className="empty-state" style={{ padding: '2.5rem' }}>
+        <div className="empty-state-icon"><Ruler size={36} /></div>
+        <h3>Nog geen meetrapport</h3>
+        <p>Zodra MH Gym een lichaamsanalyse-/weegschaalrapport voor je uploadt, verschijnt dat hier.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 480 }}>
+      <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+        Meting van {fmtDate(report.measured_at)}
+      </div>
+      {imgUrl
+        ? <img src={imgUrl} alt="Mijn meetrapport" style={{ width: '100%', borderRadius: 'var(--r)', display: 'block' }} />
+        : <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Afbeelding laden…</div>}
     </div>
   )
 }

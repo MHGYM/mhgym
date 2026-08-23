@@ -3,6 +3,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const ctrl   = require('../controllers/adminController');
 const msgCtrl = require('../controllers/messagesController');
 const rkCtrl  = require('../controllers/rittenkaartController');
+const mrCtrl  = require('../controllers/measurementReportController');
 
 router.use(authenticate, requireAdmin);
 
@@ -22,6 +23,14 @@ router.put('/members/:id/memberships/:mid/paid', ctrl.markCashPaid);
 router.post('/members/:id/pt-lessons',    ctrl.addPtLessons);
 router.delete('/members/:id',                           ctrl.deleteMember);
 router.delete('/members/:id/memberships/:mid',          ctrl.deleteMembership);
+
+// ── Lichaamsmeting-rapporten (foto/screenshot, per lid) ───────────────────────
+router.get('/members/:id/measurement-reports',    mrCtrl.listForMember);
+router.post('/members/:id/measurement-reports',   mrCtrl.uploadForMember);
+router.get('/measurement-reports/:reportId/image',  mrCtrl.getImage);
+router.get('/measurement-reports/:reportId/values', mrCtrl.getValues);
+router.put('/measurement-reports/:reportId/values', mrCtrl.confirmValues);
+router.delete('/measurement-reports/:reportId',    mrCtrl.deleteReport);
 
 // ── Lessen ───────────────────────────────────────────────────────────────────
 router.get('/classes',             ctrl.adminListClasses);
