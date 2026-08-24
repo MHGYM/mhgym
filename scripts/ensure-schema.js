@@ -566,6 +566,10 @@ async function ensureSchema() {
     `ALTER TABLE pt_subscriptions ADD COLUMN tier TEXT`,
     // measurement_reports — optioneel label/titel per meetresultaat.
     `ALTER TABLE measurement_reports ADD COLUMN title TEXT`,
+    // products — ensure-schema.js maakte deze tabel ooit met kolom 'status',
+    // maar shopController.js verwacht overal 'active' (INTEGER). Backfill de
+    // ontbrekende kolom; 'status' blijft ongebruikt staan, geen data-verlies.
+    `ALTER TABLE products ADD COLUMN active INTEGER NOT NULL DEFAULT 1`,
   ];
   for (const sql of patches) { await run(sql); }
 
