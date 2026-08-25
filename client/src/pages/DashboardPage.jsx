@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
+import AuthedImage from '../components/AuthedImage'
+import { MEASUREMENT_FIELDS, SEGMENT_FIELDS } from '../constants/measurementFields'
 
 function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -35,6 +37,7 @@ export default function DashboardPage() {
   const [workoutLogs,     setWorkoutLogs]     = useState([])
   const [programDays,     setProgramDays]     = useState([])
   const [badges,          setBadges]          = useState([])
+  const [measurementReports, setMeasurementReports] = useState([])
   const [loading,         setLoading]         = useState(true)
 
   // ── Fase 1: kerngegevens laden ────────────────────────────────────────────
@@ -50,8 +53,9 @@ export default function DashboardPage() {
           api.get('/training/access'),
           api.get('/voortgang/nutrition/today'),
           api.get('/voortgang/badges/mine'),
+          api.get('/voortgang/measurement-reports/mine'),
         ])
-        const [, bookingsR, voortgangR, ptBalR, ptBookR, accessR, simpleNutR, badgesR] = results
+        const [, bookingsR, voortgangR, ptBalR, ptBookR, accessR, simpleNutR, badgesR, measReportsR] = results
 
         if (bookingsR.status === 'fulfilled')  setBookings(bookingsR.value.data.bookings || [])
         if (voortgangR.status === 'fulfilled')  setVoortgang(voortgangR.value.data)
@@ -60,6 +64,7 @@ export default function DashboardPage() {
         if (accessR.status === 'fulfilled')     setTrainingAccess(accessR.value.data)
         if (simpleNutR.status === 'fulfilled')  setSimpleNutrition(simpleNutR.value.data)
         if (badgesR.status === 'fulfilled')     setBadges(badgesR.value.data.badges || [])
+        if (measReportsR.status === 'fulfilled') setMeasurementReports(measReportsR.value.data.reports || [])
 
         // Trainingsplatform-content alleen ophalen bij bevestigde toegang (voorkomt onnodige 403's)
         if (accessR.status === 'fulfilled' && accessR.value.data.has_access) {
@@ -158,7 +163,7 @@ export default function DashboardPage() {
   const premiumFeatures = [
     { key: 'voeding',   icon: '🥗', title: 'Persoonlijk voedingsschema',     unlocked: !!nutritionSource },
     { key: 'training',  icon: '🎥', title: 'Online trainingen',              unlocked: !!trainingAccess?.has_access },
-    { key: 'analyse',   icon: '📊', title: 'Uitgebreide lichaamsanalyse',    unlocked: measurements.length > 0 },
+    { key: 'analyse',   icon: '📊', title: 'Uitgebreide lichaamsanalyse',    unlocked: measurements.length > 0 || measurementReports.length > 0 },
     { key: 'coaching',  icon: '🥊', title: 'Persoonlijke coaching',          unlocked: isPtClient },
     { key: 'shop',      icon: '🛍️', title: 'MH Gym Shop-korting',            unlocked: false },
   ]
@@ -488,6 +493,19 @@ export default function DashboardPage() {
         )}
       </div>
 
+      {/* ── 6b. Uitgebreide lichaamsanalyse ─────────────────────────────────── */}
+      <div className="dash-section">
+        <div className="section-header">
+          <h2><Ruler size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Uitgebreide lichaamsanalyse</h2>
+          {measurementReports.length > 0 && (
+            <Link to="/dashboard/mijn-voortgang" style={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none' }}>
+              Alle meetresultaten <ChevronRight size={13} style={{ verticalAlign: 'middle' }} />
+            </Link>
+          )}
+        </div>
+        <BodyAnalysisSection reports={measurementReports} />
+      </div>
+
       {/* ── 7. Badges & Mijlpalen ────────────────────────────────────────────── */}
       <div className="dash-section">
         <div className="section-header">
@@ -578,6 +596,63 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <span className="badge badge-success">Bevestigd</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Uitgebreide lichaamsanalyse — toont de nieuwste, door de coach
+// BEVESTIGDE meetresultaat-uitlezing met alle beschikbare velden.
+// Nooit een waarde tonen die niet daadwerkelijk is bevestigd — een verse
+// upload die nog wacht op controle toont uitsluitend de afbeelding + status.
+// ════════════════════════════════════════════════════════════════════
+function BodyAnalysisSection({ reports }) {
+  if (reports.length === 0) {
+    return (
+      <div className="coming-soon-card">
+        <div className="cs-icon">📊</div>
+        <h4>Nog geen lichaamsanalyse</h4>
+        <p>Zodra MH Gym een meetresultaat voor je uploadt en de cijfers bevestigt, verschijnt hier je volledige analyse.</p>
+      </div>
+    )
+  }
+
+  const latest = reports[0] // nieuwste eerst
+  const confirmed = latest.extraction_status === 'confirmed'
+  const presentFields = [...MEASUREMENT_FIELDS, ...SEGMENT_FIELDS].filter(f => latest[f.key] != null)
+
+  return (
+    <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
+      <AuthedImage
+        src={`/voortgang/measurement-reports/mine/${latest.id}/image`}
+        alt={latest.title || 'Meetresultaat'}
+        style={{ width: 160, height: 160, objectFit: 'cover', borderRadius: 'var(--r)', flexShrink: 0 }}
+      />
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ fontWeight: 700, marginBottom: 2 }}>{latest.title || 'Meetresultaat'}</div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+          {formatDateLong(latest.measured_at)}
+        </div>
+
+        {!confirmed ? (
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Dit meetresultaat wordt nog gecontroleerd door je coach — de cijfers verschijnen hier zodra ze zijn bevestigd.
+          </p>
+        ) : presentFields.length === 0 ? (
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Er konden geen cijfers van dit rapport worden afgelezen.
+          </p>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.5rem 1rem' }}>
+            {presentFields.map(f => (
+              <div key={f.key}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.02em' }}>{f.label}</div>
+                <div style={{ fontWeight: 700 }}>{latest[f.key]}{f.unit ? ` ${f.unit}` : ''}</div>
               </div>
             ))}
           </div>

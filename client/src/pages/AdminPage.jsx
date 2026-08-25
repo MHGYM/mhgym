@@ -14,47 +14,12 @@ import ExerciseAdmin from './training/ExerciseAdmin'
 import ProgramAdmin from './training/ProgramAdmin'
 import NutritionAdmin from './training/NutritionAdmin'
 import VoortgangAdmin from './admin/VoortgangAdmin'
+import { MEASUREMENT_FIELDS, SEGMENT_FIELDS, ALL_MEASUREMENT_KEYS } from '../constants/measurementFields'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmtDate  = (s) => s ? new Date(s).toLocaleDateString('nl-NL',{day:'numeric',month:'short',year:'numeric'}) : '—'
 const fmtMoney = (n) => n != null ? `€${Number(n).toFixed(2)}` : '—'
 const fmtDT    = (s) => s ? new Date(s).toLocaleString('nl-NL',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—'
-
-// ── Meetrapport-velden (uitsluitend labels/eenheden — waarden komen altijd uit de API) ──
-const MEASUREMENT_FIELDS = [
-  { key: 'weight_kg',           label: 'Gewicht',                  unit: 'kg'   },
-  { key: 'bmi',                 label: 'BMI',                      unit: ''     },
-  { key: 'body_fat_pct',        label: 'Lichaamsvet',              unit: '%'    },
-  { key: 'fat_mass_kg',         label: 'Vetmassa',                 unit: 'kg'   },
-  { key: 'fat_free_weight_kg',  label: 'Vetvrij lichaamsgewicht',  unit: 'kg'   },
-  { key: 'muscle_mass_kg',      label: 'Spiermassa',               unit: 'kg'   },
-  { key: 'muscle_rate_pct',     label: 'Spiersnelheid',            unit: '%'    },
-  { key: 'skeletal_muscle_kg',  label: 'Skeletspier',              unit: 'kg'   },
-  { key: 'bone_mass_kg',        label: 'Botmassa',                 unit: 'kg'   },
-  { key: 'protein_mass_kg',     label: 'Eiwitmassa',               unit: 'kg'   },
-  { key: 'protein_pct',         label: 'Eiwit',                    unit: '%'    },
-  { key: 'water_weight_kg',     label: 'Watergewicht',             unit: 'kg'   },
-  { key: 'body_water_pct',      label: 'Lichaamswater',            unit: '%'    },
-  { key: 'subcutaneous_fat_pct',label: 'Onderhuids vet',           unit: '%'    },
-  { key: 'visceral_fat_rating', label: 'Visceraal vet',            unit: ''     },
-  { key: 'bmr_kcal',            label: 'BMR',                      unit: 'kcal' },
-  { key: 'body_age',            label: 'Lichaamsleeftijd',         unit: 'jaar' },
-  { key: 'whr',                 label: 'WHR',                      unit: ''     },
-  { key: 'ideal_weight_kg',     label: 'Ideaal lichaamsgewicht',   unit: 'kg'   },
-]
-const SEGMENT_FIELDS = [
-  { key: 'segment_fat_left_arm_pct',     label: 'Vet — linkerarm',    unit: '%' },
-  { key: 'segment_fat_right_arm_pct',    label: 'Vet — rechterarm',   unit: '%' },
-  { key: 'segment_fat_trunk_pct',        label: 'Vet — romp',         unit: '%' },
-  { key: 'segment_fat_left_leg_pct',     label: 'Vet — linkerbeen',   unit: '%' },
-  { key: 'segment_fat_right_leg_pct',    label: 'Vet — rechterbeen',  unit: '%' },
-  { key: 'segment_muscle_left_arm_pct',  label: 'Spier — linkerarm',  unit: '%' },
-  { key: 'segment_muscle_right_arm_pct', label: 'Spier — rechterarm', unit: '%' },
-  { key: 'segment_muscle_trunk_pct',     label: 'Spier — romp',       unit: '%' },
-  { key: 'segment_muscle_left_leg_pct',  label: 'Spier — linkerbeen', unit: '%' },
-  { key: 'segment_muscle_right_leg_pct', label: 'Spier — rechterbeen',unit: '%' },
-]
-const ALL_MEASUREMENT_KEYS = [...MEASUREMENT_FIELDS, ...SEGMENT_FIELDS].map(f => f.key)
 
 // ── Membership types ──────────────────────────────────────────────────────
 const MEMBERSHIP_TYPES = [

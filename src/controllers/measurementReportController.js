@@ -277,11 +277,16 @@ const deleteReport = async (req, res) => {
 
 // ── GET /voortgang/measurement-reports/mine ───────────────────────────────────
 // Alle eigen meetresultaten, nieuwste eerst — uitsluitend gefilterd op
-// req.user.id, nooit op een door de client aangeleverd ID.
+// req.user.id, nooit op een door de client aangeleverd ID. Geeft alle
+// uitgelezen velden mee (niet uitsluitend de 4 kernvelden) zodat de
+// "Uitgebreide lichaamsanalyse" op het Dashboard de volledige, daadwerkelijk
+// door de admin bevestigde uitlezing kan tonen — nooit een niet-bevestigde
+// AI-gok, en nooit een verzonnen waarde voor een null-veld.
+const myReportValueCols = FIELD_NAMES.map(f => `mrv.${f}`).join(', ');
 const myReports = async (req, res) => {
   const result = await db.execute({
     sql: `SELECT mr.id, mr.measured_at, mr.title, mr.mime_type, mr.created_at,
-                 mrv.extraction_status, mrv.weight_kg, mrv.bmi, mrv.body_fat_pct, mrv.muscle_mass_kg
+                 mrv.extraction_status, ${myReportValueCols}
           FROM measurement_reports mr
           LEFT JOIN measurement_report_values mrv ON mrv.report_id = mr.id
           WHERE mr.user_id = ?
