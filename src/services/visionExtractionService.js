@@ -120,7 +120,7 @@ async function extractMeasurementValues(imageBuffer, mimeType) {
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [{
@@ -139,7 +139,10 @@ async function extractMeasurementValues(imageBuffer, mimeType) {
     }
     return { status: 'extracted', values: result.values, notes: result.notes || null };
   } catch (err) {
-    console.error('[VisionExtraction] Fout:', err.message);
+    // status/type meeloggen (bv. 401 = ongeldige key, 404 = onbekend model,
+    // 429 = rate limit) — cruciaal om dit soort storingen te kunnen
+    // onderscheiden zonder dat de admin-UI interne foutdetails hoeft te tonen.
+    console.error('[VisionExtraction] Fout:', err.status || err.name, err.message);
     return { status: 'failed', values: emptyValues, notes: 'Automatische uitlezing is mislukt. Vul de waarden zo nodig handmatig in.' };
   }
 }

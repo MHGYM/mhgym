@@ -131,14 +131,20 @@ function VoedingschemasAdmin() {
   const [form, setForm]           = useState({ title: '', meals: emptyMeals(), active: true })
   const [saving, setSaving]       = useState(false)
   const [err, setErr]             = useState('')
+  // Bewaart welk lid het meest recent is opgevraagd — voorkomt dat een
+  // trage respons van een eerder geselecteerd lid de weergave van een
+  // inmiddels geselecteerd ander lid overschrijft (race condition bij snel
+  // wisselen van lid).
+  const requestedMemberRef = useRef(null)
 
   const loadTemplates = (memberId) => {
+    requestedMemberRef.current = memberId
     if (!memberId) { setTemplates([]); return }
     setLoading(true)
     api.get(`/voortgang/admin/templates/${memberId}`)
-      .then(r => setTemplates(r.data.templates || []))
-      .catch(() => setTemplates([]))
-      .finally(() => setLoading(false))
+      .then(r => { if (requestedMemberRef.current === memberId) setTemplates(r.data.templates || []) })
+      .catch(() => { if (requestedMemberRef.current === memberId) setTemplates([]) })
+      .finally(() => { if (requestedMemberRef.current === memberId) setLoading(false) })
   }
 
   const selectMember = (m) => { setMember(m); setEditing(null); loadTemplates(m.id) }
@@ -271,7 +277,7 @@ function VoedingschemasAdmin() {
                     <button className="btn btn-sm" style={{ background: 'var(--success-dim)', color: 'var(--success)' }} onClick={() => activate(t)}>Activeren</button>
                   )}
                   <button className="btn btn-ghost btn-sm" onClick={() => startEdit(t)}><Edit2 size={13} /></button>
-                  {t.active && (
+                  {!!t.active && (
                     <button className="btn btn-danger btn-sm" onClick={() => deactivate(t.id)}><Trash2 size={13} /></button>
                   )}
                 </div>
@@ -362,8 +368,14 @@ function MeetresultatenAdmin() {
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewSaving, setReviewSaving] = useState(false)
   const [viewingImage, setViewingImage] = useState(null)
+  // Bewaart welk lid het meest recent is opgevraagd — zonder deze guard kan
+  // een trage respons voor eerder-geselecteerd lid A de badges/meetresultaten
+  // van inmiddels geselecteerd lid B overschrijven ("badges op het verkeerde
+  // leden-dashboard" bij snel wisselen van lid).
+  const requestedMemberRef = useRef(null)
 
   const loadMemberData = async (m) => {
+    requestedMemberRef.current = m.id
     setLoadingData(true)
     try {
       const [repRes, badgeRes, goalRes] = await Promise.all([
@@ -371,13 +383,14 @@ function MeetresultatenAdmin() {
         api.get(`/voortgang/admin/badges/${m.id}`),
         api.get(`/voortgang/admin/goals/${m.id}`),
       ])
+      if (requestedMemberRef.current !== m.id) return // een nieuwer lid is intussen geselecteerd
       setReports(repRes.data.reports || [])
       setBadges(badgeRes.data.badges || [])
       setGoal((goalRes.data.goals || []).find(g => !g.achieved_at) || null)
     } catch (_) {
-      setReports([]); setBadges([]); setGoal(null)
+      if (requestedMemberRef.current === m.id) { setReports([]); setBadges([]); setGoal(null) }
     } finally {
-      setLoadingData(false)
+      if (requestedMemberRef.current === m.id) setLoadingData(false)
     }
   }
 

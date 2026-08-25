@@ -461,6 +461,10 @@ function LedenSection() {
   const [loading,       setLoading]       = useState(true)
   const [selected,      setSelected]      = useState(null)
   const [detail,        setDetail]        = useState(null)
+  // Voorkomt dat een trage respons voor een eerder geopend lid de gegevens
+  // van een inmiddels geopend ander lid overschrijft (race condition bij
+  // snel wisselen tussen leden in het overzicht).
+  const openMemberRef = useRef(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [showAddMember, setShowAddMember] = useState(false)
   const [showAssign,    setShowAssign]    = useState(false)
@@ -522,14 +526,16 @@ function LedenSection() {
   }
 
   const openMember = async id => {
+    openMemberRef.current = id
     setSelected(id); setLoadingDetail(true); setDetail(null); setShowRkAssign(false); setMemberRittenkaarten([])
     setShowMeasureAdd(false); setMeasurePreview(null); setMeasureError(''); setMeasurementReports([])
     const r = await api.get(`/admin/members/${id}`)
+    if (openMemberRef.current !== id) return // een ander lid is intussen geopend
     setDetail(r.data)
     setNotes(r.data.member.admin_notes || '')
     setIsCash(!!r.data.member.is_cash_payer)
     setLoadingDetail(false)
-    api.get(`/admin/members/${id}/rittenkaarten`).then(rk => setMemberRittenkaarten(rk.data.kaarten)).catch(()=>{})
+    api.get(`/admin/members/${id}/rittenkaarten`).then(rk => { if (openMemberRef.current === id) setMemberRittenkaarten(rk.data.kaarten) }).catch(()=>{})
     api.get('/admin/rittenkaart-types').then(rt => setRkTypes(rt.data.types.filter(t => t.actief))).catch(()=>{})
     loadMeasurementReports(id)
   }
@@ -537,8 +543,8 @@ function LedenSection() {
   const loadMeasurementReports = async id => {
     try {
       const r = await api.get(`/admin/members/${id}/measurement-reports`)
-      setMeasurementReports(r.data.reports)
-    } catch (_) { setMeasurementReports([]) }
+      if (openMemberRef.current === id) setMeasurementReports(r.data.reports)
+    } catch (_) { if (openMemberRef.current === id) setMeasurementReports([]) }
   }
 
   const handleMeasureFile = e => {
@@ -819,8 +825,8 @@ function LedenSection() {
                   <p style={{color:'var(--text-muted)',fontSize:'0.85rem',margin:0}}>{m.email} · {m.phone||'—'}</p>
                   <div style={{display:'flex',gap:4,marginTop:4,flexWrap:'wrap'}}>
                     <span className="badge-neutral">{m.role}</span>
-                    {m.is_cash_payer && <span className="badge-warning">Cash betaler</span>}
-                    {m.membership_paused && <span className="badge-error">Gepauzeerd</span>}
+                    {!!m.is_cash_payer && <span className="badge-warning">Cash betaler</span>}
+                    {!!m.membership_paused && <span className="badge-error">Gepauzeerd</span>}
                   </div>
                 </div>
                 <div style={{display:'flex',gap:'0.5rem',flexShrink:0}}>
@@ -873,20 +879,20 @@ function LedenSection() {
                     <div style={{fontWeight:600,paddingRight:'2rem'}}>{activeMem.membership_name||activeMem.membership_type_key}</div>
                     <div style={{fontSize:'0.8rem',color:'var(--text-muted)',marginTop:3}}>
                       {fmtDate(activeMem.start_date)} – {activeMem.end_date?fmtDate(activeMem.end_date):'Doorlopend'}
-                      {activeMem.is_cash && <span style={{marginLeft:8,color:activeMem.cash_paid?'var(--success)':'var(--error)'}}>
+                      {!!activeMem.is_cash && <span style={{marginLeft:8,color:activeMem.cash_paid?'var(--success)':'var(--error)'}}>
                         {activeMem.cash_paid?'✓ Cash betaald':'⚠ Cash onbetaald'}
                       </span>}
                     </div>
                     {activeMem.payment_type === 'mollie' && activeMem.mollie_subscription_id && (
                       <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginTop:2}}>⚡ Actieve Mollie-incasso — verwijderen stopt ook de incasso</div>
                     )}
-                    {activeMem.admin_price && <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>Prijs: {fmtMoney(activeMem.admin_price)}</div>}
+                    {!!activeMem.admin_price && <div style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>Prijs: {fmtMoney(activeMem.admin_price)}</div>}
                     {activeMem.subscription_type === 'custom' && activeMem.custom_amount != null && (
                       <div style={{fontSize:'0.8rem',color:'var(--accent)',fontWeight:600,marginTop:2}}>
                         Maatwerk incasso: {fmtMoney(activeMem.custom_amount)}/mnd
                       </div>
                     )}
-                    {activeMem.is_cash && !activeMem.cash_paid && (
+                    {!!activeMem.is_cash && !activeMem.cash_paid && (
                       <button className="btn btn-primary btn-sm" style={{marginTop:'0.5rem'}} onClick={() => doMarkPaid(activeMem.id)}>
                         <Check size={13}/> Betaling ontvangen
                       </button>
