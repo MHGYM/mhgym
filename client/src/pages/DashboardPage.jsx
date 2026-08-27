@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
 import AuthedImage from '../components/AuthedImage'
+import PtPricingCards from '../components/PtPricingCards'
 import { MEASUREMENT_FIELDS, SEGMENT_FIELDS } from '../constants/measurementFields'
 
 function formatDate(dateStr) {
@@ -361,6 +362,19 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── 3b. PT-abonnementen (Basic/Standard/Premium) — voor wie nog geen PT-klant is ── */}
+      {!isPtClient && (
+        <div className="dash-section">
+          <div className="section-header">
+            <h2><Zap size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: 'var(--accent)' }} />Personal Training</h2>
+            <Link to="/personal-training?tab=abo" className="btn btn-ghost btn-sm">
+              Volledige PT-pagina <ArrowRight size={14} />
+            </Link>
+          </div>
+          <PtPricingCards />
         </div>
       )}
 
