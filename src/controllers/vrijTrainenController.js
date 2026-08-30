@@ -9,6 +9,7 @@
 const db = require('../config/database');
 const { sendPush } = require('./ptController');
 const { sendEmail } = require('../services/emailService');
+const { dedupeVtSlots } = require('../utils/vtSlotDedup');
 
 // ── Admin: VT Slot Management ───────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ const getSlots = async (req, res) => {
   sql += ' ORDER BY s.date, s.start_time';
 
   const result = await db.execute({ sql, args });
-  res.json({ slots: result.rows });
+  res.json({ slots: dedupeVtSlots(result.rows) });
 };
 
 /**

@@ -7,6 +7,7 @@
  *   Lid:   ziet groepslessen + eigen boekingen + beschikbare VT slots met eigen status
  */
 const db = require('../config/database');
+const { dedupeVtSlots } = require('../utils/vtSlotDedup');
 
 const getAgenda = async (req, res) => {
   const { from, to } = req.query;
@@ -123,7 +124,9 @@ const getAgenda = async (req, res) => {
             ORDER BY s.date, s.start_time`,
       args: [userId, userId, from, to],
     });
-    vtSlots = slotRes.rows.map(s => ({ ...s, type: 'vt_slot' }));
+    // Lid-weergave: identieke duplicaat-slots (zelfde datum/tijd/capaciteit)
+    // samenvoegen tot één boekbaar tijdslot — zie utils/vtSlotDedup.
+    vtSlots = dedupeVtSlots(slotRes.rows).map(s => ({ ...s, type: 'vt_slot' }));
   }
 
   // ── Weekgebruik VT (voor leden) ─────────────────────────────────────────────

@@ -122,7 +122,13 @@ function AddEventSheet({ date, dateTime, members, onClose, onCreated }) {
           trainer: pt.trainer, notes: pt.notes || undefined,
         })
         if (pt.member_id && r.data?.slot?.id) {
-          await api.post('/admin/bookings/pt', { slot_id: r.data.slot.id, user_id: parseInt(pt.member_id) }).catch(() => {})
+          try {
+            await api.post('/admin/bookings/pt', { slot_id: r.data.slot.id, user_id: parseInt(pt.member_id) })
+          } catch (bookErr) {
+            alert('PT-slot aangemaakt, maar inboeken van het lid is mislukt: ' + (bookErr.response?.data?.error || 'onbekende fout') + '. Boek het lid handmatig in via het slot in de agenda.')
+          }
+        } else {
+          alert('✅ PT-slot aangemaakt!')
         }
       } else if (type === 'vt') {
         await api.post('/vt/admin/slots', vt)
