@@ -249,6 +249,28 @@ const assignMembership = async (req, res) => {
     });
   }
 
+  // PT-abonnement koppelen aan het bestaande pt_subscriptions-systeem — zonder
+  // deze koppeling is een door de admin toegewezen "PT Abonnement 1x/2x/3x per
+  // week" (lidmaatschap-categorie pt_abo) onzichtbaar voor /pt/balance en de
+  // PT-boekingscontrole (die alleen pt_subscriptions/pt_purchases raadplegen),
+  // waardoor het lid bij het boeken van een PT-slot ten onrechte naar de
+  // betaalpagina werd gestuurd ondanks een actief abonnement. Zelfde patroon
+  // als de pt-lessen-koppeling hierboven, nu voor het abonnementsysteem.
+  if (mtype.category === 'pt_abo') {
+    await db.execute({
+      sql: `UPDATE pt_subscriptions SET status = 'cancelled', updated_at = datetime('now') WHERE user_id = ? AND status IN ('active','cancelling')`,
+      args: [req.params.id],
+    });
+    const freqMatch    = /pt_abo_(\d+)x/.exec(mtype.key);
+    const freqPerWeek  = freqMatch ? Number(freqMatch[1]) : 1;
+    const monthlyPrice = Number(admin_price) || mtype.price_monthly || 0;
+    await db.execute({
+      sql: `INSERT INTO pt_subscriptions (user_id, freq_per_week, price_per_lesson, price_monthly, status, start_date, minimum_months, agreed_to_terms)
+            VALUES (?, ?, ?, ?, 'active', ?, ?, 1)`,
+      args: [req.params.id, freqPerWeek, mtype.price_per_lesson || null, monthlyPrice, startDate, mtype.minimum_months || null],
+    });
+  }
+
   // Cash betaler markeren
   if (pType === 'cash' || is_cash) {
     await db.execute({ sql: `UPDATE users SET is_cash_payer = 1, updated_at = datetime('now') WHERE id = ?`, args: [req.params.id] });
