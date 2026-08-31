@@ -87,18 +87,24 @@ export default function SchedulePage() {
       // dezelfde data als de Agenda gebruikt — groepslessen, PT-slots en
       // Vrij Trainen-slots. Elk type gebruikt zijn eigen bestaande endpoint
       // en boekingslogica; hier alleen samengevoegd voor de weergave.
-      const [classRes, bookingRes, ptSlotRes, ptBookingRes, vtRes] = await Promise.all([
+      // /pt/balance zit in dezelfde Promise.all als de rest — dit voorkomt een
+      // race condition waarbij een PT-slot al aanklikbaar is vóórdat bekend is
+      // of het lid een geldig abonnement/credit heeft, en iemand met een
+      // actief abonnement daardoor per ongeluk naar de betaalpagina zou gaan.
+      const [classRes, bookingRes, ptSlotRes, ptBookingRes, vtRes, ptBalanceRes] = await Promise.all([
         api.get('/classes', { params: { from: weekStart.toISOString(), to: weekEnd.toISOString() } }),
         api.get('/bookings'),
         api.get('/pt/slots', { params: { from: weekStart.toISOString(), to: weekEnd.toISOString() } }),
         api.get('/pt/bookings/mine'),
         api.get('/vt/slots', { params: { from: toDateStr(weekStart), to: toDateStr(weekEnd) } }),
+        api.get('/pt/balance').catch(() => null),
       ])
       setAllClasses(classRes.data.classes)
       setMyBookings(bookingRes.data.bookings)
       setPtSlots(ptSlotRes.data.slots)
       setMyPtBookings(ptBookingRes.data.bookings)
       setVtSlots(vtRes.data.slots || [])
+      setPtBalance(ptBalanceRes?.data ?? null)
     } catch (e) {
       console.error(e)
     } finally {
@@ -107,10 +113,6 @@ export default function SchedulePage() {
   }, [weekOffset])
 
   useEffect(() => { load() }, [load])
-
-  useEffect(() => {
-    api.get('/pt/balance').then((r) => setPtBalance(r.data)).catch(() => setPtBalance(null))
-  }, [])
 
   const bookedClassIds = new Set(myBookings.filter((b) => b.status === 'confirmed').map((b) => b.class_id))
   const getClassBooking = (classId) => myBookings.find((b) => b.class_id === classId && b.status === 'confirmed')
