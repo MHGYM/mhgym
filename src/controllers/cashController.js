@@ -568,16 +568,22 @@ const getIncomeBreakdown = async (req, res) => {
   const nextMonthDate = new Date(y, m, 1);
   const nextMonth = nextMonthDate.toISOString().substring(0, 7);
 
+  // Fonds-inkomsten: het daadwerkelijk ingevoerde/ontvangen bedrag
+  // (fonds_members.amount_covered) is leidend — NOOIT de lidmaatschapsprijs
+  // (bijv. "Jeugd Jaar") vermenigvuldigd met het aantal fondsleden. Elke
+  // fonds_members-rij is één concrete, eenmalige betaling en telt precies één
+  // keer mee, in de maand waarin hij is ingevoerd (created_at) — net als de
+  // mollie/cash-betalingen hierboven. Geen JOIN op user_memberships meer: die
+  // veroorzaakte dubbeltelling (één fondsbetaling × meerdere gekoppelde
+  // lidmaatschap-rijen) en trok de prijs van het lidmaatschap erbij in plaats
+  // van het echte ontvangen bedrag.
   const fondsMonthSql = (fondsType, month) => ({
-    sql: `SELECT COALESCE(SUM(COALESCE(um.admin_price, m.price_monthly, 0)), 0) AS total, COUNT(*) AS count
+    sql: `SELECT COALESCE(SUM(fm.amount_covered), 0) AS total, COUNT(*) AS count
           FROM fonds_members fm
-          JOIN user_memberships um ON um.fonds_member_id = fm.id
-          LEFT JOIN memberships m ON m.id = um.membership_id
-          WHERE fm.status = 'active'
-            AND fm.fonds_type = ?
-            AND fm.start_date <= date(? || '-01', '+1 month', '-1 day')
-            AND fm.end_date   >= date(? || '-01')`,
-    args: [fondsType, month, month],
+          WHERE fm.fonds_type = ?
+            AND fm.status != 'cancelled'
+            AND strftime('%Y-%m', fm.created_at) = ?`,
+    args: [fondsType, month],
   });
 
   const [mollie, cashMembership, cashPt, cashQuarter, shop, outstanding, prevMonths,
@@ -649,11 +655,14 @@ const getIncomeBreakdown = async (req, res) => {
     args: [nextMonth],
   });
 
-  // Verwachte fonds inkomsten volgende maand
-  const [expFondsJeugd, expFondsVolw] = await Promise.all([
-    db.execute(fondsMonthSql('jeugdsportfonds',  nextMonth)),
-    db.execute(fondsMonthSql('volwassenenfonds', nextMonth)),
-  ]);
+  // Fondsbetalingen zijn eenmalige, ad-hoc invoer door de admin (geen
+  // terugkerend maandabonnement) — er is dus geen betrouwbare basis om een
+  // bedrag voor volgende maand te voorspellen. Voorheen werd hier dezelfde
+  // (foutieve) lidmaatschapsprijs-projectie gebruikt als bij "deze maand";
+  // dat gaf een verzonnen verwacht fondsbedrag. We tonen daarom 0 in plaats
+  // van een projectie.
+  const expFondsTotal = 0;
+  const expFondsCount = 0;
 
   // Actieve fonds leden — DISTINCT user_id zodat duplicaten niet dubbel tellen
   const fondsActive = await db.execute(`
@@ -675,9 +684,6 @@ const getIncomeBreakdown = async (req, res) => {
     Number(shop.rows[0].total) +
     fondsJeugdTotal +
     fondsVolwTotal;
-
-  const expFondsTotal = Number(expFondsJeugd.rows[0].total) + Number(expFondsVolw.rows[0].total);
-  const expFondsCount = Number(expFondsJeugd.rows[0].count) + Number(expFondsVolw.rows[0].count);
 
   res.json({
     month: targetMonth,
