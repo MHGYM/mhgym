@@ -405,17 +405,13 @@ const webhook = async (req, res) => {
     if (plan) {
       const startDate = new Date();
 
-      // Nieuwe Basic/Standard/Premium-abonnementen (plan.tier) zijn maandelijks opzegbaar —
-      // geen minimale looptijd. De oude, niet meer verkochte 1×/2×/3×-plannen (zonder tier)
-      // behouden hun bestaande 6-maanden contract, puur voor eventuele nog actieve gevallen.
-      const isNewTierPlan = !!plan.tier;
-      let contractEnd = null;
-      let minimumMonths = 1;
-      if (!isNewTierPlan) {
-        contractEnd = new Date(startDate);
-        contractEnd.setMonth(contractEnd.getMonth() + 6);
-        minimumMonths = 6;
-      }
+      // Contractduur komt uit het gekozen plan (PT_PLANS.minimum_months —
+      // 1, 6 of 12 maanden, zie het inschrijfformulier). De oude, niet meer
+      // verkochte 1×/2×/3×-plannen (zonder dit veld) behouden hun bestaande
+      // 6-maanden contract, puur voor eventuele nog actieve gevallen.
+      const minimumMonths = plan.minimum_months || 6;
+      const contractEnd = new Date(startDate);
+      contractEnd.setMonth(contractEnd.getMonth() + minimumMonths);
 
       const nextBillingDate = new Date(startDate);
       nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
@@ -462,6 +458,7 @@ const webhook = async (req, res) => {
           freqPerWeek: plan.freq_per_week,
           priceMonthly: plan.price_monthly,
           startDate: startDate.toISOString().split('T')[0],
+          minimumMonths,
         }).catch((e) => console.error('[Email] PT subscription confirmation:', e.message));
       }
       console.log(`[PT] Abonnement ${tierLabel} geactiveerd voor user ${userId}`);

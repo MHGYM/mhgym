@@ -183,7 +183,7 @@ function SubscriptionManagePanel({ subscription, plans }) {
   const [open,       setOpen]       = useState(false)
   const [changing,   setChanging]   = useState(false)
   const [freq,       setFreq]       = useState(subscription.freq_per_week)
-  const [tier,       setTier]       = useState(subscription.tier || 'Basic')
+  const [tier,       setTier]       = useState(subscription.tier || '12 maanden')
   const [sending,    setSending]    = useState(false)
   const [sent,       setSent]       = useState(false)
   const [error,      setError]      = useState('')
@@ -224,7 +224,12 @@ function SubscriptionManagePanel({ subscription, plans }) {
             <Dumbbell size={18} style={{ color: 'var(--accent)' }} />
             {currentLabel}
           </div>
-          {subscription.tier && <span className={`tier-badge tier-${subscription.tier.toLowerCase()}`}>{subscription.tier}</span>}
+          {subscription.tier && (
+            <span style={{
+              fontSize: '0.75rem', fontWeight: 700, padding: '3px 10px', borderRadius: '20px',
+              background: 'var(--accent-dim)', color: 'var(--accent)',
+            }}>{subscription.tier}</span>
+          )}
         </div>
         <div className="pt-stats-row" style={{ marginBottom: '1.25rem' }}>
           <div className="mini-stat">
@@ -273,9 +278,9 @@ function SubscriptionManagePanel({ subscription, plans }) {
                 {error && <div className="alert alert-error"><AlertCircle size={15} />{error}</div>}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Nieuw niveau</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Nieuwe contractduur</div>
                     <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                      {['Basic', 'Standard', 'Premium'].map((t) => (
+                      {['1 maand', '6 maanden', '12 maanden'].map((t) => (
                         <button key={t} onClick={() => setTier(t)} className={`btn btn-sm ${tier === t ? 'btn-primary' : 'btn-outline'}`}>{t}</button>
                       ))}
                     </div>

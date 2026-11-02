@@ -21,7 +21,9 @@ function formatDateLong(dateStr) {
   return new Date(dateStr).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-const PT_TIER_CLASS = { Basic: 'tier-basic', Standard: 'tier-standard', Premium: 'tier-premium' }
+// PT-abonnementen zijn niet meer tier-based (Basic/Standard/Premium) maar
+// contractduur-based (1/6/12 maanden) — altijd dezelfde accent-badge-stijl.
+const PT_TIER_BADGE_CLASS = 'tier-premium'
 
 export default function DashboardPage() {
   const { user, membership, refreshUser } = useAuth()
@@ -184,7 +186,7 @@ export default function DashboardPage() {
             <p className="welcome-sub">
               {statusLine}
               {isPtClient && ptTier && (
-                <span className={`tier-badge ${PT_TIER_CLASS[ptTier]}`} style={{ marginLeft: '0.75rem' }}>
+                <span className={`tier-badge ${PT_TIER_BADGE_CLASS}`} style={{ marginLeft: '0.75rem' }}>
                   <Zap size={11} /> PT {ptTier}
                 </span>
               )}
@@ -327,7 +329,7 @@ export default function DashboardPage() {
                   ? `${ptTier ? 'PT ' + ptTier : 'PT-abonnement'} · ${ptBalance.subscription.freq_per_week}× per week`
                   : 'PT-lessenpakket'}
               </div>
-              {ptTier && <span className={`tier-badge ${PT_TIER_CLASS[ptTier]}`}>{ptTier}</span>}
+              {ptTier && <span className={`tier-badge ${PT_TIER_BADGE_CLASS}`}>{ptTier}</span>}
             </div>
             {ptBalance.subscription && (
               <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--accent)', marginBottom: '0.75rem' }}>

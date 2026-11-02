@@ -52,13 +52,14 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 }
 
 // ── Vaste pakket- en abonnementsdefinities ───────────────────────────────────
+// Prijzen matchen het officiële MH Personal Coaching inschrijfformulier.
 const PT_PACKAGES = [
   { id: 1, lessons: 1,  price_per_lesson: 70, total_price: 70,   label: '1 les'     },
-  { id: 2, lessons: 10, price_per_lesson: 60, total_price: 600,  label: '10 lessen' },
-  { id: 3, lessons: 20, price_per_lesson: 58, total_price: 1160, label: '20 lessen' },
-  { id: 4, lessons: 30, price_per_lesson: 56, total_price: 1680, label: '30 lessen' },
+  { id: 2, lessons: 10, price_per_lesson: 66, total_price: 660,  label: '10 lessen' },
+  { id: 3, lessons: 20, price_per_lesson: 62, total_price: 1240, label: '20 lessen' },
+  { id: 4, lessons: 30, price_per_lesson: 58, total_price: 1740, label: '30 lessen' },
   { id: 5, lessons: 40, price_per_lesson: 54, total_price: 2160, label: '40 lessen' },
-  { id: 6, lessons: 50, price_per_lesson: 52, total_price: 2600, label: '50 lessen' },
+  { id: 6, lessons: 50, price_per_lesson: 50, total_price: 2500, label: '50 lessen' },
 ];
 
 const PT_PLANS = [
@@ -67,18 +68,22 @@ const PT_PLANS = [
   { id: 2, freq_per_week: 2, label: '2× per week', price_per_lesson: 55, price_monthly: 440 },
   { id: 3, freq_per_week: 3, label: '3× per week', price_per_lesson: 50, price_monthly: 600 },
 
-  // ── Nieuwe 9 PT-abonnementen (Fase 2A, stap 1) — definitieve prijzen ──
-  { id: 4,  tier: 'Basic',    freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 54.75, price_monthly: 219   },
-  { id: 5,  tier: 'Basic',    freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 52.38, price_monthly: 419   },
-  { id: 6,  tier: 'Basic',    freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 49.92, price_monthly: 599   },
+  // ── PT-abonnementen op basis van contractduur — matcht het officiële
+  // inschrijfformulier (1 / 6 / 12 maanden × 1×/2×/3× per week). Vervangt de
+  // oude Basic/Standard/Premium-tiers. "tier" bevat nu de contractduur-label
+  // (gebruikt als lookup-sleutel, net als voorheen) i.p.v. een kwaliteits-
+  // niveau; "minimum_months" bepaalt de daadwerkelijke contractlengte.
+  { id: 4,  tier: '1 maand',    freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 70, price_monthly: 280, minimum_months: 1  },
+  { id: 5,  tier: '1 maand',    freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 69, price_monthly: 552, minimum_months: 1  },
+  { id: 6,  tier: '1 maand',    freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 68, price_monthly: 816, minimum_months: 1  },
 
-  { id: 7,  tier: 'Standard', freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 74.75, price_monthly: 299   },
-  { id: 8,  tier: 'Standard', freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 71.13, price_monthly: 569   },
-  { id: 9,  tier: 'Standard', freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 68.25, price_monthly: 819   },
+  { id: 7,  tier: '6 maanden',  freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 62, price_monthly: 248, minimum_months: 6  },
+  { id: 8,  tier: '6 maanden',  freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 60, price_monthly: 480, minimum_months: 6  },
+  { id: 9,  tier: '6 maanden',  freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 58, price_monthly: 696, minimum_months: 6  },
 
-  { id: 10, tier: 'Premium',  freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 99.75, price_monthly: 399   },
-  { id: 11, tier: 'Premium',  freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 94.88, price_monthly: 759   },
-  { id: 12, tier: 'Premium',  freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 91.58, price_monthly: 1099  },
+  { id: 10, tier: '12 maanden', freq_per_week: 1, label: '1× per week', lessons_per_month: 4,  price_per_lesson: 52, price_monthly: 208, minimum_months: 12 },
+  { id: 11, tier: '12 maanden', freq_per_week: 2, label: '2× per week', lessons_per_month: 8,  price_per_lesson: 50, price_monthly: 400, minimum_months: 12 },
+  { id: 12, tier: '12 maanden', freq_per_week: 3, label: '3× per week', lessons_per_month: 12, price_per_lesson: 48, price_monthly: 576, minimum_months: 12 },
 ];
 
 // ── Hulpfuncties ─────────────────────────────────────────────────────────────

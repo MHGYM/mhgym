@@ -7,37 +7,59 @@ import { formatEuro } from '../utils/format'
 // PT-pagina als het Dashboard exact dezelfde winkelwagen-/checkout-flow
 // gebruiken — geen nieuwe betaallogica, geen dubbele implementatie.
 
+// Voorwaarden letterlijk overgenomen uit het officiële MH Personal Coaching
+// inschrijfformulier (sectie 5 "PT-VOORWAARDEN", punten 1-10). Punt 10
+// ("door ondertekening...") is aangepast naar het akkoord-vinkje in de app,
+// aangezien er geen fysieke handtekening is. Per lijst alleen de punten die
+// voor dat type aankoop gelden (abonnement-specifiek vs. lessenpakket-
+// specifiek); de algemene punten staan in alle drie.
+function durLabel(months) { return months === 1 ? '1 maand' : `${months} maanden` }
+
 export const LOSSE_TERMS = [
-  'Gekochte lessen zijn 12 maanden geldig na aankoopdatum.',
-  'Geen restitutie mogelijk na aankoop.',
-  'Wijzigen of annuleren van een sessie kan tot 24 uur van tevoren.',
-  'Bij annulering binnen 24 uur vervalt de les.',
-  'Extra persoon meenemen: +€15 per sessie, vooraf melden via app.',
-  'Lessen zijn persoonlijk en niet overdraagbaar.',
+  'Lessenpakketten zijn 12 maanden geldig vanaf de datum van aankoop.',
+  'Een PT-afspraak kan tot uiterlijk 24 uur vóór de afspraak kosteloos worden geannuleerd of verplaatst.',
+  'Bij annulering binnen 24 uur vóór de afspraak of bij niet verschijnen wordt de training volledig in rekening gebracht.',
+  'Een lessenpakket is persoonlijk en niet overdraagbaar aan derden.',
+  'Gemiste trainingen kunnen niet automatisch worden opgespaard of meegenomen naar een volgende periode, tenzij vooraf anders overeengekomen.',
+  'Bij langdurige ziekte of een blessure kan in overleg een tijdelijke pauze worden afgesproken, indien passend.',
+  'Er vindt geen restitutie plaats van reeds betaalde bedragen, tenzij schriftelijk anders overeengekomen.',
+  'Extra persoon meenemen: +€15 per sessie, vooraf melden via de app.',
+  'Door akkoord te gaan in de app verklaar je deze voorwaarden te hebben gelezen en ermee akkoord te gaan.',
 ]
 
-export const ABO_TERMS = [
-  'Minimum looptijd is 6 maanden.',
-  'Maandelijks gefactureerd via automatische incasso (SEPA).',
-  'Facturering per kalendermaand, geen restitutie bij gemiste lessen.',
-  'Na 6 maanden maandelijks opzegbaar met 1 maand opzegtermijn.',
-  'Wijzigen of annuleren van een sessie kan tot 24 uur van tevoren.',
-  'Bij annulering binnen 24 uur vervalt de sessie.',
-  'Extra persoon meenemen: +€15 per sessie, vooraf melden via app.',
-  'Bij langdurige ziekte of blessure: overleg mogelijk, geen automatische restitutie.',
-  'Sessies zijn persoonlijk en niet overdraagbaar.',
-  'MH Gym behoudt het recht om een sessie te verzetten bij overmacht.',
-  'Door akkoord te gaan ga je een bindende overeenkomst aan voor minimaal 6 maanden.',
-]
+export function aboTerms(months) {
+  const duur = durLabel(months)
+  return [
+    `Minimum looptijd is ${duur}. Het tarief is afhankelijk van de gekozen contractduur.`,
+    'Een PT-afspraak kan tot uiterlijk 24 uur vóór de afspraak kosteloos worden geannuleerd of verplaatst.',
+    'Bij annulering binnen 24 uur vóór de afspraak of bij niet verschijnen wordt de training volledig in rekening gebracht.',
+    'Bij een vast abonnement worden vaste trainingsdagen en tijden in overleg afgesproken.',
+    'Het verschuldigde bedrag wordt automatisch geïncasseerd op basis van het aantal geplande trainingen.',
+    'Een abonnement is persoonlijk en niet overdraagbaar aan derden.',
+    'Gemiste trainingen kunnen niet automatisch worden opgespaard of meegenomen naar een volgende periode, tenzij vooraf anders overeengekomen.',
+    'Bij langdurige ziekte of een blessure kan in overleg een tijdelijke pauze worden afgesproken, indien passend.',
+    'Er vindt geen restitutie plaats van reeds betaalde bedragen, tenzij schriftelijk anders overeengekomen.',
+    `Na afloop van de minimale looptijd (${duur}) is het abonnement maandelijks opzegbaar met 1 maand opzegtermijn.`,
+    'Extra persoon meenemen: +€15 per sessie, vooraf melden via de app.',
+    'MH Gym behoudt het recht om een sessie te verzetten bij overmacht.',
+    'Door akkoord te gaan in de app verklaar je deze voorwaarden te hebben gelezen en ermee akkoord te gaan.',
+  ]
+}
 
+// Algemene weergave op de PT-pagina (buiten de wizard om) — de volledige 10
+// punten uit het inschrijfformulier, ongeacht welk type aankoop iemand
+// uiteindelijk kiest.
 export const PT_VOORWAARDEN = [
-  'Maandelijks opzegbaar',
-  'Vooruitbetaling per maand',
-  'Upgraden kan altijd',
-  'Minimaal 24 uur vooraf annuleren',
-  'Minder dan 24 uur vooraf annuleren = les wordt gerekend',
-  'Gemiste lessen worden niet automatisch meegenomen naar de volgende maand',
-  'Een eventuele 5e trainingsweek wordt als extra training verwerkt volgens het gekozen abonnement/tarief',
+  'Een PT-afspraak kan tot uiterlijk 24 uur vóór de afspraak kosteloos worden geannuleerd of verplaatst.',
+  'Bij annulering binnen 24 uur vóór de afspraak of bij niet verschijnen wordt de training volledig in rekening gebracht.',
+  'Bij een vast abonnement worden vaste trainingsdagen en tijden in overleg afgesproken.',
+  'Bij een vast abonnement wordt het verschuldigde bedrag automatisch geïncasseerd op basis van het aantal geplande trainingen.',
+  'Een abonnement en een lessenpakket zijn persoonlijk en niet overdraagbaar aan derden.',
+  'Gemiste trainingen kunnen niet automatisch worden opgespaard of meegenomen naar een volgende periode, tenzij vooraf anders overeengekomen.',
+  'Bij langdurige ziekte of een blessure kan in overleg een tijdelijke pauze worden afgesproken, indien passend.',
+  'Lessenpakketten zijn 12 maanden geldig vanaf de datum van aankoop.',
+  'Er vindt geen restitutie plaats van reeds betaalde bedragen, tenzij schriftelijk anders overeengekomen.',
+  'Door akkoord te gaan in de app verklaar je deze voorwaarden te hebben gelezen en ermee akkoord te gaan.',
 ]
 
 function addMonths(date, n) {
@@ -85,12 +107,13 @@ export default function PurchaseWizard({ type, item, onClose }) {
   const [error,  setError]  = useState('')
 
   const isPackage = type === 'package'
-  // Nieuwe Basic/Standard/Premium-abonnementen (met tier) zijn maandelijks opzegbaar —
-  // de oude, niet meer getoonde 1×/2×/3×-plannen (zonder tier) behouden hun bestaande 6-maanden voorwaarden.
-  const isNewTierSub = !isPackage && !!item.tier
-  const terms = isPackage ? LOSSE_TERMS : (isNewTierSub ? PT_VOORWAARDEN : ABO_TERMS)
+  // Contractduur komt uit het gekozen plan (PT_PLANS.minimum_months — 1, 6 of
+  // 12 maanden). De oude, niet meer getoonde legacy-plannen (zonder dit veld)
+  // vallen terug op de bestaande 6-maanden voorwaarden.
+  const contractMonths = !isPackage ? (item.minimum_months || 6) : null
+  const terms = isPackage ? LOSSE_TERMS : aboTerms(contractMonths)
 
-  const contractEnd = (!isPackage && !isNewTierSub) ? addMonths(new Date(), 6) : null
+  const contractEnd = !isPackage ? addMonths(new Date(), contractMonths) : null
 
   const startPayment = async () => {
     setPaying(true); setError('')
@@ -140,18 +163,11 @@ export default function PurchaseWizard({ type, item, onClose }) {
                   ['Totaalprijs',    `€${item.total_price.toFixed(2).replace('.', ',')}`],
                   ['Geldig',         '12 maanden na aankoop'],
                   ['Betaalmethode',  'iDEAL (eenmalig)'],
-                ] : isNewTierSub ? [
-                  ['Abonnement',     `${item.tier} — ${item.label}`],
+                ] : [
+                  ['Abonnement',     `${item.tier ? item.tier + ' · ' : ''}${item.label}`],
                   ['Prijs per les',  `€${item.price_per_lesson}/sessie`],
                   ['Maandbedrag',    `${formatEuro(item.price_monthly)}/mnd`],
-                  ['Opzegtermijn',   'Maandelijks opzegbaar'],
-                  ['Startdatum',     new Date().toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })],
-                  ['Betaalmethode',  'iDEAL + SEPA maandelijks'],
-                ] : [
-                  ['Abonnement',     item.label],
-                  ['Prijs per les',  `€${item.price_per_lesson}/sessie`],
-                  ['Maandbedrag',    `€${item.price_monthly}/mnd`],
-                  ['Minimum looptijd', '6 maanden'],
+                  ['Minimum looptijd', contractMonths === 1 ? '1 maand' : `${contractMonths} maanden`],
                   ['Startdatum',     new Date().toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })],
                   ['Opzegbaar vanaf', contractEnd.toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })],
                   ['Betaalmethode',  'iDEAL + SEPA maandelijks'],
@@ -206,9 +222,7 @@ export default function PurchaseWizard({ type, item, onClose }) {
               <span style={{ fontSize: '0.83rem', lineHeight: 1.55, color: 'var(--text-2)' }}>
                 {isPackage
                   ? 'Ik ga akkoord met de voorwaarden voor losse PT-lessen en begrijp dat er geen restitutie mogelijk is na aankoop.'
-                  : isNewTierSub
-                    ? 'Ik ga akkoord met de voorwaarden. Dit abonnement is maandelijks opzegbaar — geen minimale looptijd.'
-                    : 'Ik ga akkoord met de voorwaarden en ga een bindende overeenkomst aan voor minimaal 6 maanden met een opzegtermijn van 1 maand.'
+                  : `Ik ga akkoord met de voorwaarden en ga een bindende overeenkomst aan voor minimaal ${contractMonths === 1 ? '1 maand' : `${contractMonths} maanden`} met een opzegtermijn van 1 maand.`
                 }
               </span>
             </label>

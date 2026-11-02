@@ -274,13 +274,14 @@ async function sendPtPackageConfirmationEmail({ to, firstName, packageLabel, les
 }
 
 /**
- * PT-abonnement (Basic/Standard/Premium) succesvol afgesloten.
+ * PT-abonnement (contractduur 1/6/12 maanden × frequentie) succesvol afgesloten.
  * Let op: er bestaat nog geen gepubliceerde "algemene voorwaarden"-pagina in de
  * app — er wordt daarom bewust NAAR CONTACT verwezen i.p.v. een verzonnen link.
  */
-async function sendPtSubscriptionConfirmationEmail({ to, firstName, tier, freqPerWeek, priceMonthly, startDate }) {
+async function sendPtSubscriptionConfirmationEmail({ to, firstName, tier, freqPerWeek, priceMonthly, startDate, minimumMonths }) {
   const fmt = (d) => new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' });
   const planLabel = tier ? `${tier} — ${freqPerWeek}× per week` : `${freqPerWeek}× per week`;
+  const duurLabel = minimumMonths === 1 ? '1 maand' : `${minimumMonths || 6} maanden`;
 
   const html = `
     <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#fff;max-width:560px;margin:0 auto;border-radius:8px;overflow:hidden">
@@ -304,7 +305,7 @@ async function sendPtSubscriptionConfirmationEmail({ to, firstName, tier, freqPe
 
         <p style="color:#ccc;font-size:13px;line-height:1.6">
           <strong style="color:#fff">Belangrijkste voorwaarden:</strong><br>
-          • Maandelijks opzegbaar, geen minimale looptijd.<br>
+          • Minimale looptijd ${duurLabel}, daarna maandelijks opzegbaar met 1 maand opzegtermijn.<br>
           • Annuleren van een sessie kan kosteloos tot 24 uur van tevoren; bij annulering binnen 24 uur wordt de sessie gerekend.<br>
           • Niet-gebruikte sessies worden niet automatisch meegenomen naar de volgende maand.<br>
           • Wil je je abonnement wijzigen of beëindigen? Neem contact op met MH Gym — dit gaat niet automatisch via de app.
